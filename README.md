@@ -55,15 +55,16 @@ Put useful vars in container's bashrc, and setup ROS:
 export ASTROBEE_WS=/src/astrobee
 export SOURCE_PATH=$ASTROBEE_WS/src
 export ANDROID_PATH=$ASTROBEE_WS/src/submodules/android/
+export ANDROID_HOME=$HOME/Android/Sdk
 export EMULATOR=$HOME/Android/Sdk/emulator/emulator
 export AVD=Nexus_5_API_25
 export USER=root
+export CUSTOM_GS_PATH=/src/astrobee-isd/guest_science_projects
 
 # ROS
 export ROS_IP=$(getent hosts llp | awk '{ print $1 }')
 export ROS_MASTER_URI=http://${ROS_IP}:11311
-cd $ASTROBEE_WS
-source devel/setup.bash
+source $ASTROBEE_WS/devel/setup.bash
 ```
 
 <br>
