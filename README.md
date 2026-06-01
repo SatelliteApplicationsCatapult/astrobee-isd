@@ -59,7 +59,7 @@ export ANDROID_HOME=$HOME/Android/Sdk
 export EMULATOR=$HOME/Android/Sdk/emulator/emulator
 export AVD=Nexus_5_API_25
 export USER=root
-export CUSTOM_GS_PATH=/src/astrobee-isd/guest_science_projects
+export CUSTOM_WS=/src/astrobee-isd/
 
 # ROS
 export ROS_IP=$(getent hosts llp | awk '{ print $1 }')
