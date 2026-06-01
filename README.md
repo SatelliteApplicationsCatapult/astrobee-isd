@@ -60,6 +60,7 @@ export EMULATOR=$HOME/Android/Sdk/emulator/emulator
 export AVD=Nexus_5_API_25
 export USER=root
 export CUSTOM_WS=/src/astrobee-isd/
+export GAZEBO_MODEL_PATH=$CUSTOM_WS/models
 
 # ROS
 export ROS_IP=$(getent hosts llp | awk '{ print $1 }')
