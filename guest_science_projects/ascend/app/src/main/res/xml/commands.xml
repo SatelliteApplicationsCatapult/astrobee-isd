@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<apkInfo>
+    <shortName>ascend</shortName> <!-- Optional -->
+    <primary>true</primary> <!-- Required -->
+    <commands>
+        <command
+            name="No Op"
+            syntax="{&quot;name&quot;: &quot;noOp&quot;}" />
+        <command
+            name="Do Something"
+            syntax="{&quot;name&quot;: &quot;doSomething&quot;, &quot;numOfTimes&quot;: &quot;5&quot;}" />
+    </commands>
+</apkInfo>
