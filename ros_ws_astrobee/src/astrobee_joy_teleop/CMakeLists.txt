@@ -155,7 +155,7 @@ include_directories(
 #############
 
 catkin_install_python(PROGRAMS
-  scripts/joy_test.py
+  scripts/astrobee_joy_teleop.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
