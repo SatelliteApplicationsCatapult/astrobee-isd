@@ -34,9 +34,8 @@
         <material>
           <ambient>0.20 0.20 0.20 1.0</ambient>
           <!-- <diffuse>0.75 0.75 0.78 1.0</diffuse>    <!- silver base -->
-          <diffuse>0.0 0.0 0.9 1.0</diffuse>    <!-- blue base -->
+          <diffuse>0.0 0.0 0.8 1.0</diffuse>    <!-- blue base -->
           <specular>0.95 0.95 0.95 1.0</specular>  <!-- shiny highlights -->
-
         </material>
       </visual>
     </link>

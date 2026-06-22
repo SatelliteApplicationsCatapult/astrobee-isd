@@ -31,6 +31,12 @@
             <scale>0.001 0.001 0.001</scale>
           </mesh>
         </geometry>
+        <material>
+          <ambient>0.20 0.20 0.20 1.0</ambient>
+          <!-- <diffuse>0.75 0.75 0.78 1.0</diffuse>    <!- silver base -->
+          <diffuse>0.0 0.8 0.0 1.0</diffuse>    <!-- green base -->
+          <specular>0.95 0.95 0.95 1.0</specular>  <!-- shiny highlights -->
+        </material>
       </visual>
     </link>
   </model>
