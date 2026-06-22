@@ -155,7 +155,7 @@ include_directories(
 #############
 
 catkin_install_python(PROGRAMS
-  scripts/astrobee_joy_teleop.py
+  scripts/astrobee_joy_arm_wrench.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
