@@ -54,12 +54,12 @@ Put useful vars in container's bashrc, and setup ROS:
 # Useful vars
 export ASTROBEE_WS=/src/astrobee
 export SOURCE_PATH=$ASTROBEE_WS/src
-export ANDROID_PATH=$ASTROBEE_WS/src/submodules/android/
+export ANDROID_PATH=$ASTROBEE_WS/src/submodules/android
 export ANDROID_HOME=$HOME/Android/Sdk
 export EMULATOR=$HOME/Android/Sdk/emulator/emulator
 export AVD=Nexus_5_API_25
 export USER=root
-export CUSTOM_WS=/src/astrobee-isd/
+export CUSTOM_WS=/src/astrobee-isd
 export GAZEBO_MODEL_PATH=$CUSTOM_WS/models
 
 # ROS
