@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<launch>
+
+    <arg name="ns" default="honey" />
+    <arg name="bag_path" default="input.bag" />
+    <arg name="pointcloud_topic" default="hw/depth_perch/points" />
+
+    <group ns="/$(arg ns)">
+        <node
+            pkg="astrobee_joy_teleop"
+            type="pose_extraction_test.py"
+            name="pose_extraction_test"
+            output="screen">
+
+            <param name="bag_path" value="$(arg bag_path)" />
+            <param name="pointcloud_topic" value="$(arg pointcloud_topic)" />
+
+        </node>
+    </group>
+</launch>

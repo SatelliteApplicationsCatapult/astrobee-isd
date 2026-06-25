@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<launch>
+
+    <arg name="ns" default="honey" />
+    <arg name="output_dir" default="/tmp/astrobee_trials" />
+    <arg name="pointcloud_topic" default="hw/depth_perch/points" />
+
+    <group ns="/$(arg ns)">
+        <node
+            pkg="astrobee_joy_teleop"
+            type="astrobee_recorder.py"
+            name="astrobee_recorder"
+            output="screen">
+
+            <param name="output_dir" value="$(arg output_dir)" />
+            <param name="pointcloud_topic" value="$(arg pointcloud_topic)" />
+
+        </node>
+    </group>
+</launch>

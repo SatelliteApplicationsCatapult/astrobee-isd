@@ -52,3 +52,6 @@ CATKIN_IGNORE
 
 # Auto-generated file
 .catkin_workspace
+
+# Data folder
+data/
