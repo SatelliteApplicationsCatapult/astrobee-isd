@@ -7,7 +7,6 @@ from tf.transformations import quaternion_from_euler
 
 class AstrobeeWrenchToTeleop(object):
     def __init__(self):
-        rospy.init_node("astrobee_wrench_to_teleop", anonymous=True)
 
         # Namespace (must match how you started the robot/sim, e.g. "honey")
         self.ns = rospy.get_param("~ns", "honey")
@@ -69,7 +68,7 @@ class AstrobeeWrenchToTeleop(object):
 
     def build_simple_move_6dof(self, dx, dy, dz, droll, dpitch, dyaw):
         """
-        Build a Mobility.simpleMove6DOF CommandStamped for a RELATIVE move in the body frame
+        Build a Mobility.simpleMove6DOF CommandStamped for a RELATIVE move in the body frame.
         """
 
         cmd = CommandStamped()
@@ -120,6 +119,8 @@ class AstrobeeWrenchToTeleop(object):
 
 if __name__ == "__main__":
     try:
-        AstrobeeWrenchToTeleop()
+        rospy.init_node("astrobee_wrench_to_teleop")
+        node = AstrobeeWrenchToTeleop()
+        #rospy.spin()  # Uses rospy.Rate
     except rospy.ROSInterruptException:
         pass

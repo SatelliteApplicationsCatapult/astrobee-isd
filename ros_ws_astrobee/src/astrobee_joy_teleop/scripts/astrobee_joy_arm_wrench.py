@@ -58,7 +58,6 @@ Y_AXIS_DIRECTION = 1     # To Invert Y axis for aircraft-style control of pitch,
 
 class AstrobeeJoyArmWrench:
     def __init__(self):
-        rospy.init_node('astrobee_joy_arm_wrench', anonymous=True)
 
         # Max limits based on Astrobee's physical blower limits
         self.max_force = 0.8    # Newtons
@@ -224,7 +223,8 @@ class AstrobeeJoyArmWrench:
 
 if __name__ == '__main__':
     try:
-        teleop = AstrobeeJoyArmWrench()
+        rospy.init_node('astrobee_joy_arm_wrench')
+        node = AstrobeeJoyArmWrench()
         rospy.spin()
     except rospy.ROSInterruptException:
         pass
