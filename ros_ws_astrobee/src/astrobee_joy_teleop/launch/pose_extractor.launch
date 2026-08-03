@@ -3,6 +3,9 @@
 
     <arg name="ns" default="honey" />
     <arg name="bag_path" default="input.bag" />
+    <arg name="tool_name" default="ratchet_wrench" />
+    <arg name="robot_name" default="honey" />
+    <arg name="pc_frame" default="honey/perch_cam" />
     <arg name="pointcloud_topic" default="hw/depth_perch/points" />
 
     <group ns="/$(arg ns)">
@@ -13,6 +16,9 @@
             output="screen">
 
             <param name="bag_path" value="$(arg bag_path)" />
+            <param name="tool_name" value="$(arg tool_name)" />
+            <param name="robot_name" value="$(arg robot_name)" />
+            <param name="pc_frame" value="$(arg pc_frame)" />
             <param name="pointcloud_topic" value="$(arg pointcloud_topic)" />
 
         </node>

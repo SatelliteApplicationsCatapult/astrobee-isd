@@ -8,6 +8,7 @@ import subprocess
 import threading
 
 from sensor_msgs.msg import PointCloud2, Image, CameraInfo
+from gazebo_msgs.msg import ModelStates
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseStamped
 from tf2_msgs.msg import TFMessage
@@ -32,6 +33,7 @@ class AstrobeeRecorder:
 
         self.topics = {
             self.pointcloud_topic: PointCloud2,
+            "/gazebo/model_states": ModelStates,
             #"/tf": TFMessage,
             #"/tf_static": TFMessage,
         }
