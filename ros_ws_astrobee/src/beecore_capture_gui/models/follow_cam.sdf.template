@@ -1,0 +1,65 @@
+<?xml version="1.0" ?>
+<!--
+  Standalone follow_cam model. Spawned and positioned entirely from the GUI -
+  nothing here touches the Astrobee robot description.
+
+  Rendered by beecore_capture_gui/follow_cam.py; placeholders are substituted before
+  spawning. Edit freely, but keep the placeholders.
+
+  THE LINK FRAME IS perch_cam-ALIGNED, NOT GAZEBO-CAMERA-ALIGNED.
+  Gazebo camera sensors look along +X with +Z up. perch_cam is +Z forward,
+  +X down. The sensor <pose> below carries that rotation, which means the
+  MODEL pose the GUI writes is in plain perch_cam convention:
+
+      +X down     +Y right     +Z forward (out of the lens)
+
+  No collision geometry, no gravity, kinematic: this model must never touch
+  the robot, fall, or be seen by the physics solver as anything but a marker.
+-->
+<sdf version="1.6">
+  <model name="$model_name">
+    <static>false</static>
+    <link name="link">
+      <gravity>false</gravity>
+      <kinematic>true</kinematic>
+      <self_collide>false</self_collide>
+
+      <!-- Nominal, never actually integrated - the GUI overwrites the pose
+           every tick. Present only so Gazebo has a valid rigid body. -->
+      <inertial>
+        <mass>0.001</mass>
+        <inertia>
+          <ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>1e-6</iyy><iyz>0</iyz><izz>1e-6</izz>
+        </inertia>
+      </inertial>
+
+      <sensor name="follow_cam" type="camera">
+        <pose>0 0 0 0 $mount_pitch 0</pose>
+        <always_on>true</always_on>
+        <update_rate>$rate</update_rate>
+        <visualize>false</visualize>
+        <camera>
+          <horizontal_fov>$hfov</horizontal_fov>
+          <image>
+            <width>$width</width>
+            <height>$height</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <far>100</far>
+          </clip>
+        </camera>
+        <plugin name="follow_cam_ros" filename="libgazebo_ros_camera.so">
+          <alwaysOn>true</alwaysOn>
+          <updateRate>$rate</updateRate>
+          <cameraName>$camera_name</cameraName>
+          <imageTopicName>$image_topic</imageTopicName>
+          <cameraInfoTopicName>$info_topic</cameraInfoTopicName>
+          <frameName>$frame_name</frameName>
+        </plugin>
+      </sensor>
+    </link>
+  </model>
+</sdf>
