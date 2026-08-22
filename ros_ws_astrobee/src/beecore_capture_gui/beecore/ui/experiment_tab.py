@@ -19,38 +19,54 @@ from ..config import (FAULT_STATES, FORCE_MAX_N, IMPULSE_S,
                       NOMINAL_TOOL_INERTIA, NOMINAL_TOOL_MASS_KG,
                       OUTCOME_FAILURE, OUTCOME_NA, OUTCOME_SUCCESS,
                       TORQUE_MAX_NM, TOOLS, settings)
-from ..diagnostics import DOWN, OK, STALE, UNKNOWN
+from ..diagnostics import DOWN, OK, STALE, UNKNOWN, WARN
 from ..logbridge import log
 from ..naming import build_folder_name
 from ..recorder import RecorderError
+from ..reset import clear_fault
 from ..ros_link import call_set_bool
+from ..runners import RunnerError
 from ..state import state
 from .. import theme
 
 _LED_COLOUR = {
     OK: theme.GREEN,
+    WARN: theme.AMBER,
     STALE: theme.AMBER,
     DOWN: theme.RED,
     UNKNOWN: theme.GREY,
 }
 
-# key -> (label, hint shown under the label)
-_DIAG_ROWS = (
-    ('joy', 'Gamepad', '/joy'),
-    ('points', 'Depth perch cloud', 'hw/depth_perch/points'),
-    ('fault', 'Astrobee state', 'mgt/sys_monitor/state'),
-    ('gnc', 'GNC disarmed', 'gnc/ctl/enable  (green = OFF)'),
-    ('start', 'Custom control', 'start'),
+# Diagnostics rows, top to bottom. The order is the signal chain: robot state
+# first, then joystick in, converted, out to the FAM.
+#
+# label None means "take it from the RunnerSet", so a runner's name lives in
+# exactly one place - the switch and its LED cannot end up disagreeing.
+_DIAG_ORDER = (
+    ('fault', 'Astrobee State', 'mgt/sys_monitor/state'),
+    ('points', 'PerchCam Point Cloud', 'hw/depth_perch/points'),
+    ('joy_node', None, None),
+    ('joy', 'Gamepad Data', '/joy'),
+    ('joy_convert', None, None),
+    ('fam_control', None, None),
+    ('start', 'Custom FAM Control Started', 'start'),
 )
 
 
 class ExperimentTab:
 
-    def __init__(self, recorder, diagnostics, on_reset, camera) -> None:
+    def __init__(self, recorder, diagnostics, on_reset, camera, runners,
+                 fault_pub) -> None:
         self.recorder = recorder
         self.diagnostics = diagnostics
         self.on_reset = on_reset
         self.camera = camera
+        self.runners = runners
+        self.fault_pub = fault_pub
+        from_model = {r.key: (r.label, r.command) for r in runners}
+        self.diag_rows = tuple(
+            (key,) + (from_model[key] if label is None else (label, hint))
+            for key, label, hint in _DIAG_ORDER)
         self._leds = {}
         self._details = {}
 
@@ -119,41 +135,82 @@ class ExperimentTab:
                      ).classes('text-xs').style('color: {}'.format(theme.MUTED))
 
     def _build_control(self) -> None:
-        """The two SetBool services.
+        """Runners, then toggles.
 
-        A service has no readable state, so these switches are also the only
-        thing that can move the matching indicators: the GUI shows what it
-        last commanded. Anything else touching the service goes unnoticed.
+        The three runners are subprocesses, so their switches show what is
+        actually alive - poll() clears the flag if one dies and the switch
+        follows. The Custom FAM Control Start switch is a service call, which
+        has no readable state, so that one shows only what the GUI last
+        commanded; anything else touching /honey/start goes unnoticed.
         """
         with ui.card().classes('w-full'):
             ui.label('Control services').classes('eyebrow')
-            with ui.row().classes('items-center gap-4 w-full'):
-                self.gnc_switch = ui.switch(
-                    'GNC control enabled',
-                    value=bool(state.gnc_enabled),
-                    on_change=lambda e: self._call_service(
-                        'gnc', settings.topic('gnc/ctl/enable'), e.value))
+
+            for runner in self.runners:
+                with ui.row().classes('items-center gap-4 w-full'):
+                    # Seeded from intent, not from poll(): a new browser tab
+                    # should show what was asked for, and nothing writes here
+                    # afterwards.
+                    ui.switch(runner.label, value=runner.desired,
+                              on_change=lambda e, key=runner.key:
+                                  self._toggle_runner(key, e.value))
+                ui.label(runner.command).classes(
+                    'font-mono text-xs break-all -mt-2 ml-14').style(
+                        'color: {}'.format(theme.MUTED))
+
+            ui.separator().classes('my-2')
+
             with ui.row().classes('items-center gap-4 w-full'):
                 self.start_switch = ui.switch(
-                    'Custom control started',
+                    'Custom FAM Control Start',
                     value=bool(state.custom_start),
                     on_change=lambda e: self._call_service(
-                        'start', settings.topic('start'), e.value))
+                        settings.topic('start'), e.value))
+            with ui.row().classes('items-center gap-4 w-full'):
+                ui.button('Clear Astrobee Fault State', icon='clear_all',
+                          on_click=self._clear_fault).props('outline color=warning')
             self.service_status = ui.label('').classes('text-xs').style(
                 'color: {}'.format(theme.MUTED))
 
-    def _call_service(self, key: str, name: str, value: bool) -> None:
+    def _toggle_runner(self, key: str, value: bool) -> None:
+        """Start/stop blocks for up to STOP_TIMEOUT_S - keep it off the loop."""
+
+        def worker() -> None:
+            try:
+                self.runners.set_running(key, value)
+            except RunnerError as exc:
+                log.error('%s', exc)
+
+        self.service_status.set_text(
+            '{} {} ...'.format('Starting' if value else 'Stopping',
+                               self.runners.get(key).label))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _clear_fault(self) -> None:
+        """One-fire, not a toggle: publish FaultState 0 and return."""
+
+        def worker() -> None:
+            result = clear_fault(settings, self.fault_pub)
+            if not result.get('published'):
+                log.error('Clear fault state failed: %s',
+                          result.get('message') or 'unknown error')
+
+        self.service_status.set_text('Clearing fault state ...')
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _call_service(self, name: str, value: bool) -> None:
         """Service calls block for up to 2 s - keep them off the event loop."""
 
         def worker() -> None:
             ok, message = call_set_bool(name, value)
+            state.custom_start_failed = not ok
             if ok:
-                if key == 'gnc':
-                    state.gnc_enabled = value
-                else:
-                    state.custom_start = value
+                state.custom_start = value
                 log.info('%s -> %s (%s)', name, value, message or 'ok')
             else:
+                # custom_start is deliberately left as it was: a refused call
+                # tells us nothing new about the node, only that we do not
+                # know. The LED goes amber on the flag.
                 log.error('%s failed: %s', name, message)
 
         self.service_status.set_text('Calling {} ...'.format(name))
@@ -187,11 +244,6 @@ class ExperimentTab:
                         value=settings.torque_axes.get(axis, True),
                         on_change=lambda e, a=axis: self._on_axis('torque_axes', a, e.value),
                     ).props('dense color=secondary').classes('justify-center')
-
-            ui.label('Unticked axes get no perturbation on that component. '
-                     'Force and torque are independent, so X torque can be on '
-                     'while X force is off.'
-                     ).classes('text-xs mt-2').style('color: {}'.format(theme.MUTED))
 
             ui.label('Perturbation magnitude').classes('eyebrow mt-3')
             with ui.row().classes('items-center gap-3 w-full no-wrap'):
@@ -229,7 +281,7 @@ class ExperimentTab:
 
         with ui.card().classes('w-full'):
             ui.label('Diagnostics').classes('eyebrow')
-            for key, label, hint in _DIAG_ROWS:
+            for key, label, hint in self.diag_rows:
                 with ui.row().classes('items-center gap-3 w-full no-wrap py-1'):
                     led = ui.element('div').classes('led')
                     led.style('color: {c}; background: {c}'.format(c=theme.GREY))
@@ -352,12 +404,7 @@ class ExperimentTab:
         spin = math.degrees(
             settings.max_torque_nm * IMPULSE_S / NOMINAL_TOOL_INERTIA)
         self.impulse_hint.set_text(
-            'The impulse is applied for {:.1f} s, then the tool coasts. At '
-            'these maxima a {:.1f} kg tool with {:.3f} kg.m2 inertia leaves at '
-            'up to {:.3f} m/s and {:.0f} deg/s. Each axis is scaled randomly '
-            'within that; the log reports what was actually measured.'.format(
-                IMPULSE_S, NOMINAL_TOOL_MASS_KG, NOMINAL_TOOL_INERTIA,
-                speed, spin))
+            'Up to {:.3f} m/s and {:.0f} deg/s.'.format(speed, spin))
 
     def _on_axis(self, group: str, axis: str, value: bool) -> None:
         getattr(settings, group)[axis] = bool(value)
@@ -399,7 +446,7 @@ class ExperimentTab:
 
     def refresh_diagnostics(self) -> None:
         snapshot = self.diagnostics.snapshot()
-        for key, _label, hint in _DIAG_ROWS:
+        for key, _label, hint in self.diag_rows:
             reading = snapshot.get(key)
             if reading is None:
                 continue
@@ -407,10 +454,11 @@ class ExperimentTab:
             self._leds[key].style('color: {c}; background: {c}'.format(c=colour))
             self._details[key].set_text(reading.detail or hint)
 
-        if state.gnc_enabled is not None:
-            self.gnc_switch.value = state.gnc_enabled
-        if state.custom_start is not None:
-            self.start_switch.value = state.custom_start
+        # Nothing here writes to a switch. The switches carry operator intent
+        # and move only when the operator moves them; the LEDs above carry
+        # what was observed. A mismatch is the signal, not something to
+        # silently correct. (The runner watchdog runs on the diagnostics
+        # thread - the view does not drive the model.)
         self.service_status.set_text('')
 
         value = self.diagnostics.fault_value

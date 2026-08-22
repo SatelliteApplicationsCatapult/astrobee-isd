@@ -155,10 +155,6 @@ class CameraTab:
                 self.step_deg_value = ui.label('').classes(
                     'font-mono text-xs w-16 text-right')
 
-            ui.label('Step per arrow click. FOV is unaffected by these.'
-                     ).classes('text-xs mt-1').style(
-                         'color: {}'.format(theme.MUTED))
-
     def _build_rotation(self) -> None:
         with ui.card().classes('w-full'):
             self.rot_title = ui.label('').classes('eyebrow')
@@ -202,11 +198,6 @@ class CameraTab:
                 ui.button('Reset to default', icon='restart_alt',
                           on_click=self._reset).props('outline color=warning')
 
-            ui.label('Moves take effect on the next pin, within ~16 ms. Each '
-                     'camera keeps its own offset and its own default, both '
-                     'persisted; "Set as default" is what "Reset" returns to.'
-                     ).classes('text-xs mt-2').style('color: {}'.format(theme.MUTED))
-
     def _build_optics(self) -> None:
         with ui.card().classes('w-full'):
             ui.label('Optics').classes('eyebrow')
@@ -244,14 +235,6 @@ class CameraTab:
                           on_click=self._despawn).props('flat color=warning')
 
             self.status = ui.label('').classes('text-xs mt-2')
-
-            ui.label('FOV and resolution are baked into the model at spawn, so '
-                     'changing either deletes and respawns THAT camera. Its '
-                     'image topic drops for about a second; the viewer '
-                     'reconnects on its own within a few seconds and the other '
-                     'three are unaffected. Four sensors means four render '
-                     'passes - resolution is the setting that costs.'
-                     ).classes('text-xs mt-2').style('color: {}'.format(theme.AMBER))
 
     # --- actions -------------------------------------------------------------
 

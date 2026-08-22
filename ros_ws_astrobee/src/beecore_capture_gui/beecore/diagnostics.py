@@ -4,13 +4,26 @@ Runs on a daemon thread and writes into a plain dict; the UI reads that dict
 from its own timer. Nothing here touches NiceGUI.
 
 Colour language: GREEN always means "ready to run", never "this thing is on".
-That is why GNC shows green when it is *disabled* - it keeps the whole column
-scannable as one rule, rather than making the operator remember which LED is
-inverted.
+The Astrobee state LED is graded on the FaultState value alone - see
+FAULT_GREEN / FAULT_RED in config.
 
-Services expose no readable state, so /gnc/ctl/enable and /honey/start report
-two things separately: whether the service exists, and what this GUI last
-commanded. A value never set by this GUI since launch shows as unknown.
+RUNNER LEDS GRADE INTENT AGAINST ACTUAL
+---------------------------------------
+A runner LED is not "is it running" - that would make a runner the operator
+deliberately stopped look the same as one that crashed. It compares what was
+asked for with what poll() sees:
+
+    off / not running   grey     off, as asked
+    on  / running       green
+    on  / not running   RED      died, or never started
+    off / running       AMBER    shutdown failed - should not happen
+
+The runner watchdog lives here, on this thread, next to the other watchdogs.
+It used to run inside the UI refresh, which had the view driving the model.
+
+/honey/start is a SetBool, so the response is real feedback about whether the
+call was accepted. It is not feedback about what the node does afterwards, so
+the service disappearing is graded ambiguous rather than off.
 """
 
 import threading
@@ -20,13 +33,14 @@ from typing import Dict, Optional
 
 import rospy
 
-from .config import (DIAG_POLL_S, FAULT_READY, FAULT_STATES, STALE_AFTER_S,
-                     Settings)
+from .config import (DIAG_POLL_S, FAULT_GREEN, FAULT_RED, FAULT_STATES,
+                     STALE_AFTER_S, Settings)
 from .logbridge import log
 from .ros_link import HAVE_FF_MSGS, has_publisher, service_available
 from .state import state
 
 OK = 'ok'
+WARN = 'warn'
 STALE = 'stale'
 DOWN = 'down'
 UNKNOWN = 'unknown'
@@ -42,6 +56,7 @@ class Reading:
 @dataclass
 class Diagnostics:
     settings: Settings
+    runners: object = None
     readings: Dict[str, Reading] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -50,7 +65,11 @@ class Diagnostics:
         self._subscribed_ns = None
         self._stop = threading.Event()
         self._fault_value = None        # type: Optional[int]
-        for key in ('joy', 'points', 'fault', 'gnc', 'start'):
+        keys = ['joy', 'points', 'fault']
+        if self.runners is not None:
+            keys.extend(runner.key for runner in self.runners)
+        keys.append('start')
+        for key in keys:
             self.readings[key] = Reading()
 
     # --- topic names ---------------------------------------------------------
@@ -66,10 +85,6 @@ class Diagnostics:
     @property
     def fault_topic(self) -> str:
         return self.settings.topic('mgt/sys_monitor/state')
-
-    @property
-    def gnc_service(self) -> str:
-        return self.settings.topic('gnc/ctl/enable')
 
     @property
     def start_service(self) -> str:
@@ -149,25 +164,24 @@ class Diagnostics:
         self._grade(joy, self.joy_topic, now)
         self._grade(points, self.points_topic, now)
 
-        # Fault state: graded on value, not just liveness.
+        # Astrobee state: graded on the FaultState value alone. Liveness is
+        # deliberately NOT folded in - a stale FUNCTIONAL still reads green.
         if fault_value is None:
             fault.status = UNKNOWN
             fault.detail = ('ff_msgs unavailable' if not HAVE_FF_MSGS
                             else 'no message yet')
         else:
-            name = FAULT_STATES.get(fault_value, 'UNKNOWN')
+            name = FAULT_STATES.get(fault_value, 'UNRECOGNISED')
             fault.detail = '{} ({})'.format(name, fault_value)
-            if fault_value == FAULT_READY:
+            if fault_value in FAULT_GREEN:
                 fault.status = OK
-            elif fault.last_msg_at and now - fault.last_msg_at > STALE_AFTER_S * 5:
-                fault.status = STALE
-            else:
+            elif fault_value in FAULT_RED:
                 fault.status = DOWN
+            else:
+                fault.status = WARN
 
-        self._grade_service('gnc', self.gnc_service, state.gnc_enabled,
-                            ready_when=False)
-        self._grade_service('start', self.start_service, state.custom_start,
-                            ready_when=True)
+        self._grade_runners()
+        self._grade_start()
 
     def _grade(self, reading: Reading, topic: str, now: float) -> None:
         if reading.last_msg_at is None:
@@ -186,19 +200,42 @@ class Diagnostics:
             reading.status = DOWN
             reading.detail = 'publisher gone'
 
-    def _grade_service(self, key: str, name: str, commanded: Optional[bool],
-                       ready_when: bool) -> None:
-        reading = self.readings[key]
+    def _grade_runners(self) -> None:
+        """Intent vs actual. poll() first - it is the observation."""
+        if self.runners is None:
+            return
+        self.runners.poll()
+        for runner in self.runners:
+            reading = self.readings[runner.key]
+            if runner.desired and runner.running:
+                reading.status = OK
+            elif runner.desired and not runner.running:
+                reading.status = DOWN
+            elif runner.running:
+                reading.status = WARN     # asked to stop, still alive
+            else:
+                reading.status = UNKNOWN  # off, as asked
+            reading.detail = runner.detail
+
+    def _grade_start(self) -> None:
+        """SetBool answers, so green/red are earned. Amber is genuine doubt."""
+        reading = self.readings['start']
+        name = self.start_service
+        if state.custom_start_failed:
+            reading.status = WARN
+            reading.detail = 'last call failed - state unknown'
+            return
         if not service_available(name):
-            reading.status = DOWN
-            reading.detail = 'service not advertised'
+            reading.status = WARN
+            reading.detail = 'service not advertised - state unknown'
             return
-        if commanded is None:
+        if state.custom_start is None:
             reading.status = UNKNOWN
-            reading.detail = 'available, not set this session'
+            reading.detail = 'available, not called this session'
             return
-        reading.status = OK if commanded == ready_when else STALE
-        reading.detail = 'last set to {}'.format('true' if commanded else 'false')
+        reading.status = OK if state.custom_start else DOWN
+        reading.detail = 'last call set {} and was accepted'.format(
+            'true' if state.custom_start else 'false')
 
     # --- read ----------------------------------------------------------------
 

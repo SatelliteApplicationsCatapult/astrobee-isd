@@ -40,10 +40,6 @@ class OtherTab:
                               min=0, step=256,
                               on_change=lambda e: self._set_int('split_mb', e.value),
                               ).props('outlined dense').classes('w-56')
-                ui.label('A larger buffer avoids dropped messages on image-heavy '
-                         'topics. rosbag defaults to 256 MB and drops silently.'
-                         ).classes('text-xs').style('color: {}'.format(theme.MUTED))
-
             with ui.card().classes('w-full'):
                 ui.label('Image viewer').classes('eyebrow')
                 with ui.row().classes('gap-4 w-full'):
@@ -74,15 +70,6 @@ class OtherTab:
                 self.video_status = ui.label('').classes('text-xs mt-1')
                 self.stream_hint = ui.label('').classes('text-xs break-all').style(
                     'color: {}'.format(theme.MUTED))
-                ui.label('The port is what the server is launched on AND what '
-                         'the browser fetches, so the two cannot drift apart. '
-                         'Quality trades CPU for image fidelity. There is no '
-                         'stream width control: web_video_server ignores the '
-                         'parameter (upstream bug). Use the sensor resolution '
-                         'on the Camera tab instead - that changes what Gazebo '
-                         'renders, which is what actually costs anything.'
-                         ).classes('text-xs').style('color: {}'.format(theme.MUTED))
-
             ui.label('Settings are saved to {}'.format(CONFIG_PATH)
                      ).classes('text-xs').style('color: {}'.format(theme.MUTED))
 

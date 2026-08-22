@@ -304,11 +304,11 @@ class FollowCam:
     def start(self) -> None:
         from gazebo_msgs.msg import ModelState, ModelStates
 
-        # queue_size=1 on BOTH ends: a stale pin is worse than a dropped one.
-        # tcp_nodelay because these are small messages at rate and Nagle
-        # batching adds tens of milliseconds of variable delay.
+        # queue_size must hold a full tick: this publisher carries CAM_COUNT
+        # DIFFERENT models per callback, not repeats of one. At 1 the queue
+        # evicted three of every four pins.
         self._pub = rospy.Publisher('/gazebo/set_model_state', ModelState,
-                                    queue_size=1, tcp_nodelay=True)
+                                    queue_size=CAM_COUNT, tcp_nodelay=True)
         self._sub = rospy.Subscriber('/gazebo/model_states', ModelStates,
                                      self._on_states, queue_size=1,
                                      tcp_nodelay=True)

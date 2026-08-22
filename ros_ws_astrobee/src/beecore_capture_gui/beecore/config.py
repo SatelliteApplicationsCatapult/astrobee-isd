@@ -58,7 +58,11 @@ FAULT_STATES = {
     3: 'BLOCKED',
     4: 'RELOADING_NODELETS',
 }
-FAULT_READY = 1             # FUNCTIONAL
+# LED grading, by value only. GREEN covers STARTING_UP as well as FUNCTIONAL:
+# neither is a fault. RED is reserved for FAULT. Everything else - BLOCKED,
+# RELOADING_NODELETS, or a value this GUI does not recognise - is AMBER.
+FAULT_GREEN = (0, 1)        # STARTING_UP, FUNCTIONAL
+FAULT_RED = (2,)            # FAULT
 FAULT_CLEAR_PUBLISH = 0     # what the GUI publishes to clear; transitions to 1
 
 # --- follow_cam --------------------------------------------------------------

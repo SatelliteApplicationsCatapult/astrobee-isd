@@ -16,10 +16,12 @@ class RuntimeState:
     available_topics: List[str] = field(default_factory=list)
     ros_ok: bool = False
 
-    # Services expose no readable state, so the GUI remembers what it last
-    # commanded. None means "never set by this GUI since launch".
-    gnc_enabled: Optional[bool] = None
+    # SetBool answers, so the GUI records both what it last commanded and
+    # whether that call was accepted. custom_start is None until the first
+    # call; custom_start_failed says the last attempt was refused, which is
+    # ambiguous - we do not know what the node is actually doing.
     custom_start: Optional[bool] = None
+    custom_start_failed: bool = False
 
     # tool spawn / reset in progress
     busy: bool = False

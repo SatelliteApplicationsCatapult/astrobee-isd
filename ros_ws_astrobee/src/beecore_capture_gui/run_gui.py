@@ -29,6 +29,7 @@ from beecore.diagnostics import Diagnostics
 from beecore.logbridge import log
 from beecore.naming import scan_next_experiment_id
 from beecore.recorder import BagRecorder
+from beecore.runners import RunnerSet
 from beecore.reset import ToolError, capture_home_if_unset, full_reset
 from beecore.ros_link import FaultStatePublisher, init_node
 from beecore.state import state
@@ -102,9 +103,10 @@ def main() -> None:
 
     fault_pub = FaultStatePublisher()
     recorder = BagRecorder(settings)
+    runners = RunnerSet()
     video = VideoServer(settings)
     camera = FollowCam(settings)
-    diagnostics = Diagnostics(settings)
+    diagnostics = Diagnostics(settings, runners)
 
     app.add_static_files('/assets', ASSETS_DIR)
     app.on_shutdown(recorder.shutdown)
@@ -112,10 +114,13 @@ def main() -> None:
     app.on_shutdown(camera.stop)
     app.on_shutdown(camera.despawn_all)
     app.on_shutdown(video.stop)
+    # setsid detaches the runners, so nothing else would clean them up.
+    app.on_shutdown(runners.stop_all)
 
     # recorder.on_change is rebound per client inside the page handler.
     page = MainPage(recorder, diagnostics, camera,
-                    on_reset=make_reset(fault_pub), video=video)
+                    on_reset=make_reset(fault_pub), runners=runners,
+                    fault_pub=fault_pub, video=video)
     page.register()
     viewer.register()       # /view - deliberately outside the single-tab lock
 

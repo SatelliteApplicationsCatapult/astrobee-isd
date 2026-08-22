@@ -119,7 +119,7 @@ class _Session:
     """One browser tab's worth of UI. Never shared."""
 
     def __init__(self, client_id: str, recorder, diagnostics, camera,
-                 on_reset, video=None) -> None:
+                 on_reset, runners, fault_pub, video=None) -> None:
         self.client_id = client_id
         self.recorder = recorder
         self.diagnostics = diagnostics
@@ -128,7 +128,8 @@ class _Session:
         self.log_pane = None
         self.signature = None
 
-        self.experiment = ExperimentTab(recorder, diagnostics, on_reset, camera)
+        self.experiment = ExperimentTab(recorder, diagnostics, on_reset, camera,
+                                        runners, fault_pub)
         self.camera_tab = CameraTab(camera)
         self.topics = TopicsTab()
         self.video = video
@@ -270,12 +271,14 @@ class _Session:
 class MainPage:
     """Holds only the shared services. All per-tab state lives in _Session."""
 
-    def __init__(self, recorder, diagnostics, camera, on_reset,
-                 video=None) -> None:
+    def __init__(self, recorder, diagnostics, camera, on_reset, runners,
+                 fault_pub, video=None) -> None:
         self.recorder = recorder
         self.diagnostics = diagnostics
         self.camera = camera
         self.on_reset = on_reset
+        self.runners = runners
+        self.fault_pub = fault_pub
         self.video = video
 
     def register(self) -> None:
@@ -302,7 +305,8 @@ class MainPage:
         client.on_disconnect(lambda: _release(client.id))
 
         session = _Session(client.id, self.recorder, self.diagnostics,
-                           self.camera, self.on_reset, self.video)
+                           self.camera, self.on_reset, self.runners,
+                           self.fault_pub, self.video)
         session.build()
 
         self.recorder.on_change = session.experiment.refresh
