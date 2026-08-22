@@ -40,6 +40,15 @@ def quat_rotate(q: Quat, v: Sequence[float]) -> Vec3:
     )
 
 
+def cross(a: Sequence[float], b: Sequence[float]) -> Vec3:
+    """a x b. Used for the lever-arm term when a rigid offset rotates."""
+    ax, ay, az = a
+    bx, by, bz = b
+    return (ay * bz - az * by,
+            az * bx - ax * bz,
+            ax * by - ay * bx)
+
+
 def quat_normalise(q: Quat) -> Quat:
     x, y, z, w = q
     norm = math.sqrt(x * x + y * y + z * z + w * w)

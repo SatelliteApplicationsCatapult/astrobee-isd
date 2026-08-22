@@ -3,6 +3,7 @@
 The UI layer never imports rospy directly.
 """
 
+import time
 from typing import List, Optional, Tuple
 
 import rospy
@@ -77,18 +78,25 @@ def call_set_bool(name: str, value: bool) -> Tuple[bool, str]:
         return False, str(exc)
 
 
+def _model_states(timeout: float = 3.0, quiet: bool = False):
+    from gazebo_msgs.msg import ModelStates
+    try:
+        return rospy.wait_for_message('/gazebo/model_states', ModelStates,
+                                      timeout=timeout)
+    except Exception as exc:                                   # noqa: BLE001
+        if not quiet:
+            log.error('No /gazebo/model_states (%s). Is Gazebo running?', exc)
+        return None
+
+
 def model_pose(model_name: str) -> Optional[Tuple[Vec3, Quat]]:
     """World pose of a Gazebo model, straight off /gazebo/model_states.
 
     Cheaper and simpler than a TF lookup, and the perch_cam offset is static
     so we can apply it ourselves.
     """
-    from gazebo_msgs.msg import ModelStates
-    try:
-        msg = rospy.wait_for_message('/gazebo/model_states', ModelStates,
-                                     timeout=3.0)
-    except Exception as exc:                                   # noqa: BLE001
-        log.error('No /gazebo/model_states (%s). Is Gazebo running?', exc)
+    msg = _model_states()
+    if msg is None:
         return None
 
     if model_name not in msg.name:
@@ -101,6 +109,59 @@ def model_pose(model_name: str) -> Optional[Tuple[Vec3, Quat]]:
     quat = (pose.orientation.x, pose.orientation.y,
             pose.orientation.z, pose.orientation.w)
     return xyz, quat
+
+
+def model_velocity(model_name: str) -> Optional[Tuple[Vec3, Vec3]]:
+    """(linear, angular) world velocity of a model. Returns None if absent.
+
+    Used to MEASURE what an impulse actually did, rather than asserting it.
+    """
+    msg = _model_states(timeout=2.0, quiet=True)
+    if msg is None or model_name not in msg.name:
+        return None
+    twist = msg.twist[msg.name.index(model_name)]
+    return ((twist.linear.x, twist.linear.y, twist.linear.z),
+            (twist.angular.x, twist.angular.y, twist.angular.z))
+
+
+def wait_for_model(model_name: str, timeout: float = 3.0) -> bool:
+    """Block until a model appears in /gazebo/model_states.
+
+    spawn_model returns when the SpawnModel service returns, which is not
+    quite the same instant as the body being present in the physics update
+    that apply_body_wrench resolves names against. Cheap insurance.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        msg = _model_states(timeout=1.0, quiet=True)
+        if msg is not None and model_name in msg.name:
+            return True
+    return False
+
+
+def set_model_state(model_name: str, xyz: Vec3, quat: Quat) -> Tuple[bool, str]:
+    """Teleport a model, zeroing its velocity.
+
+    The SERVICE, not the topic follow_cam pins with: this is one shot and we
+    want the success flag back. Twist is left at zero so the robot does not
+    carry its old drift into the new run.
+    """
+    from gazebo_msgs.msg import ModelState
+    from gazebo_msgs.srv import SetModelState
+    try:
+        rospy.wait_for_service('/gazebo/set_model_state', timeout=2.0)
+        target = ModelState()
+        target.model_name = model_name
+        target.reference_frame = 'world'
+        (target.pose.position.x, target.pose.position.y,
+         target.pose.position.z) = xyz
+        (target.pose.orientation.x, target.pose.orientation.y,
+         target.pose.orientation.z, target.pose.orientation.w) = quat
+        response = rospy.ServiceProxy('/gazebo/set_model_state',
+                                      SetModelState)(target)
+        return bool(response.success), str(response.status_message)
+    except Exception as exc:                                   # noqa: BLE001
+        return False, str(exc)
 
 
 def set_model_configuration(model_name: str, urdf_param: str,

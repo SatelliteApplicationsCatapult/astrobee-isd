@@ -24,6 +24,14 @@ class RuntimeState:
     # tool spawn / reset in progress
     busy: bool = False
 
+    # What the last reset actually did: which tool, where it was spawned, what
+    # impulse it was given. reset_tools() already computes all of it; keeping
+    # it here is what lets metadata.json record the initial conditions of the
+    # run instead of just the outcome. None means no successful reset since
+    # launch, and a failed reset clears it rather than leaving the previous
+    # one to be attributed to this bag.
+    last_reset: Optional[dict] = None
+
     # Mirrors BagRecorder.recording so the camera tab can refuse a respawn
     # without importing the recorder.
     recording_guard: bool = False

@@ -34,7 +34,7 @@
         </inertia>
       </inertial>
 
-      <sensor name="follow_cam" type="camera">
+      <sensor name="$camera_name" type="camera">
         <pose>0 0 0 0 $mount_pitch 0</pose>
         <always_on>true</always_on>
         <update_rate>$rate</update_rate>
@@ -51,7 +51,7 @@
             <far>100</far>
           </clip>
         </camera>
-        <plugin name="follow_cam_ros" filename="libgazebo_ros_camera.so">
+        <plugin name="${camera_name}_ros" filename="libgazebo_ros_camera.so">
           <alwaysOn>true</alwaysOn>
           <updateRate>$rate</updateRate>
           <cameraName>$camera_name</cameraName>

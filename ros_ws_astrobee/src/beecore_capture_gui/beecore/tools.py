@@ -2,7 +2,7 @@
 
 Sequence:
     1. delete every known tool model that is currently in Gazebo
-    2. sample a pose inside a 1 m box in front of the perch cam
+    2. sample a pose inside SPAWN_BOX (0.5 m) in front of the perch cam
     3. spawn the selected SDF there with a uniformly random orientation
     4. apply a short wrench impulse to give it a small drift
 
@@ -15,19 +15,26 @@ world pose off /gazebo/model_states and compose the known constant transform.
 
 Perturbation
 ------------
-apply_body_wrench takes force, not velocity, so the target velocity is turned
-into a wrench with F = m*v/dt. Rather than querying each tool's mass we work
-from configured maxima (MAX_FORCE_N, MAX_TORQUE_NM) chosen for a ~0.5 kg tool
-over a 0.1 s impulse. Adjust in config.py if your tools are much heavier.
+apply_body_wrench takes force, not velocity. The operator sets a maximum force
+(N) and torque (Nm); each axis is then scaled randomly within that. The slider
+bounds FORCE_MAX_N and TORQUE_MAX_NM are derived in config.py from the tool's
+actual mass and inertia, so the figures under the sliders mean something.
+
+After the impulse the tool's velocity is READ BACK from /gazebo/model_states
+and logged. An impulse that silently fails to land - wrong body name, model
+not yet resolvable - then shows up as zeros instead of being assumed to have
+worked.
 
 The XY components are biased back toward the boresight: a tool spawned near
 the edge of the box gets pushed inward, so it does not immediately drift out
 of view. Z is left uniform because drifting away along the view axis is fine.
 """
 
+import math
 import os
 import random
 import subprocess
+import time
 from typing import Dict, Optional, Tuple
 
 from .config import (CENTRING_BIAS, IMPULSE_S, PERCH_CAM_QUAT, PERCH_CAM_XYZ,
@@ -35,7 +42,8 @@ from .config import (CENTRING_BIAS, IMPULSE_S, PERCH_CAM_QUAT, PERCH_CAM_XYZ,
 from .geometry import (Quat, Vec3, compose, quat_normalise, quat_rotate,
                        quat_to_rpy, random_quat)
 from .logbridge import log
-from .ros_link import apply_body_wrench, delete_model, model_exists, model_pose
+from .ros_link import (apply_body_wrench, delete_model, model_exists,
+                       model_pose, model_velocity, wait_for_model)
 
 
 class ToolError(Exception):
@@ -77,6 +85,35 @@ def sample_velocity(offset: Vec3, force_axes: Dict[str, bool],
 def sample_spin(torque_axes: Dict[str, bool], rng: random.Random) -> Vec3:
     return tuple(rng.uniform(-1.0, 1.0) if torque_axes.get(axis, True) else 0.0
                  for axis in ('x', 'y', 'z'))
+
+
+def _measure(model_name: str) -> dict:
+    """Read the tool's velocity back once the impulse has finished.
+
+    Answers "did the torque do anything" with a number instead of an opinion.
+    Sampled after the impulse ends; the tool is coasting by then, so this is
+    the speed it will carry through the run.
+    """
+    time.sleep(IMPULSE_S + 0.2)
+    velocity = model_velocity(model_name)
+    if velocity is None:
+        log.warning('Could not read back the velocity of "%s".', model_name)
+        return {}
+
+    linear, angular = velocity
+    speed = math.sqrt(sum(component * component for component in linear))
+    spin = math.sqrt(sum(component * component for component in angular))
+    log.info('Measured after impulse: %.3f m/s, %.1f deg/s', speed,
+             math.degrees(spin))
+    if speed < 1e-4 and spin < 1e-4:
+        log.warning('The tool is not moving. Either the wrench was rejected '
+                    'or the magnitudes are too small for its mass/inertia.')
+    return {
+        'speed_m_s': round(speed, 4),
+        'spin_deg_s': round(math.degrees(spin), 2),
+        'linear_world_m_s': [round(v, 4) for v in linear],
+        'angular_world_rad_s': [round(v, 4) for v in angular],
+    }
 
 
 # --- pose --------------------------------------------------------------------
@@ -149,6 +186,11 @@ def perturb_tool(settings: Settings, cam_quat: Quat,
     """Apply the randomised impulse. Returns what was applied, for metadata."""
     _sdf, model_name, link = settings.tool
 
+    # The body has to exist before the wrench can name it.
+    if not wait_for_model(model_name, timeout=3.0):
+        log.warning('Model "%s" has not appeared in model_states; applying '
+                    'the impulse anyway.', model_name)
+
     velocity = sample_velocity(offset, settings.force_axes, rng)
     spin = sample_spin(settings.torque_axes, rng)
 
@@ -164,11 +206,13 @@ def perturb_tool(settings: Settings, cam_quat: Quat,
     ok, message = apply_body_wrench(body_name, force_world, torque_world,
                                     IMPULSE_S)
     if ok:
-        log.info('Impulse on %s: F=[%.4f %.4f %.4f] N  T=[%.5f %.5f %.5f] Nm '
+        log.info('Impulse on %s: F=[%.3f %.3f %.3f] N  T=[%.3f %.3f %.3f] Nm '
                  'for %.2f s', body_name, *(list(force_world) +
                                             list(torque_world) + [IMPULSE_S]))
     else:
         log.warning('apply_body_wrench failed for %s: %s', body_name, message)
+
+    measured = _measure(model_name)
 
     return {
         'model': model_name,
@@ -180,6 +224,8 @@ def perturb_tool(settings: Settings, cam_quat: Quat,
         'max_torque_nm': max_torque,
         'force_axes': dict(settings.force_axes),
         'torque_axes': dict(settings.torque_axes),
+        'wrench_accepted': ok,
+        'measured': measured,
     }
 
 

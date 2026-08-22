@@ -28,6 +28,7 @@ VIOLET = '#7E57C5'       # PANTONE 2665 - banner
 # --- derived -----------------------------------------------------------------
 
 VIOLET_DIM = '#5D3F94'   # debug bar, related to the banner but distinct
+VIOLET_DARK = '#3E2A63'  # unselected segment of a toggle - clearly recessed
 SURFACE = '#2C2728'
 SURFACE_HI = '#3A3435'
 BORDER = '#4A4243'
@@ -69,6 +70,23 @@ _CSS = Template('''
     .debug-pane { min-height: 0; }
     .nicegui-log { min-height: 0; }
 
+    /* Segmented toggle (the camera selector).
+       Quasar's QBtnToggle paints the active segment with `toggle-color` and
+       the rest with `color`, but ui.colors() maps primary AND secondary to the
+       same violet, so all four segments came out identical and the selection
+       was invisible. The palette entries still emit DIFFERENT CLASS NAMES
+       (.bg-primary vs .bg-secondary), so scoping the two colours to this
+       toggle separates them without touching the global palette and without
+       depending on whatever Quasar happens to call its active-state class. */
+    .seg-toggle .q-btn { border: 1px solid $border; }
+    .seg-toggle .bg-primary { background: $violet !important;
+                              color: $text !important;
+                              border-color: $violet; }
+    .seg-toggle .bg-secondary { background: $violet_dark !important;
+                                color: $muted !important; }
+    .seg-toggle .bg-secondary:hover { background: $violet_dim !important;
+                                      color: $text !important; }
+
     .debug-bar { background: $violet_dim; }
     .debug-pane { background: $log_bg; border-top: 2px solid $violet; }
 
@@ -95,5 +113,6 @@ def apply_theme() -> None:
               dark=BLACK, positive=GREEN, negative=RED, warning=AMBER)
     ui.add_css(_CSS.substitute(
         red=RED, black=BLACK, violet=VIOLET, violet_dim=VIOLET_DIM,
+        violet_dark=VIOLET_DARK,
         surface=SURFACE, surface_hi=SURFACE_HI, border=BORDER,
         text=TEXT, muted=MUTED, log_bg=LOG_BG))

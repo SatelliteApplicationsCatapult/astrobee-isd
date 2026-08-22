@@ -56,10 +56,6 @@ class OtherTab:
                               on_change=lambda e: self._set_int('video_port', e.value),
                               ).props('outlined dense').classes('w-32')
                 with ui.row().classes('gap-4'):
-                    ui.number('Stream width (px)', value=settings.stream_width,
-                              min=160, max=1920, step=160,
-                              on_change=lambda e: self._set_int('stream_width', e.value),
-                              ).props('outlined dense').classes('w-44')
                     ui.number('JPEG quality', value=settings.stream_quality,
                               min=10, max=100, step=5,
                               on_change=lambda e: self._set_int('stream_quality', e.value),
@@ -80,7 +76,11 @@ class OtherTab:
                     'color: {}'.format(theme.MUTED))
                 ui.label('The port is what the server is launched on AND what '
                          'the browser fetches, so the two cannot drift apart. '
-                         'Lower width and quality cost noticeably less CPU.'
+                         'Quality trades CPU for image fidelity. There is no '
+                         'stream width control: web_video_server ignores the '
+                         'parameter (upstream bug). Use the sensor resolution '
+                         'on the Camera tab instead - that changes what Gazebo '
+                         'renders, which is what actually costs anything.'
                          ).classes('text-xs').style('color: {}'.format(theme.MUTED))
 
             ui.label('Settings are saved to {}'.format(CONFIG_PATH)
@@ -111,7 +111,13 @@ class OtherTab:
             return
         try:
             self.video.start()
-            ui.notify('Video server started.', type='positive')
+            # start() is a no-op if the port is already serving, so report the
+            # resulting state rather than claiming a start that did not happen.
+            if self.video.running:
+                ui.notify('Video server started.', type='positive')
+            else:
+                ui.notify('Port {} was already serving - left it alone.'.format(
+                    settings.video_port), type='warning')
         except VideoServerError as exc:
             log.error('%s', exc)
             ui.notify(str(exc), type='negative')
@@ -124,12 +130,15 @@ class OtherTab:
 
     def _update_stream_hint(self) -> None:
         if hasattr(self, 'stream_hint'):
-            self.stream_hint.set_text(settings.stream_url())
+            # One example URL - the other three differ only in `topic`.
+            self.stream_hint.set_text(settings.stream_url(0))
         if hasattr(self, 'video_status') and self.video is not None:
             status = self.video.status()
             self.video_status.set_text('web_video_server: {}'.format(status))
-            colour = (theme.GREEN if 'port' in status and 'not running' not in status
-                      else theme.AMBER)
+            # Green means "the GUI owns this and will clean it up". A server
+            # someone else started still works, but stays amber - matching the
+            # colour language on the Experiment tab.
+            colour = theme.GREEN if self.video.running else theme.AMBER
             self.video_status.style('color: {}'.format(colour))
 
     def _on_dir_change(self, event) -> None:

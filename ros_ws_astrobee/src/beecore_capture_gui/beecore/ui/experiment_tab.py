@@ -18,7 +18,7 @@ from nicegui import ui
 from ..config import (FAULT_STATES, FORCE_MAX_N, IMPULSE_S,
                       NOMINAL_TOOL_INERTIA, NOMINAL_TOOL_MASS_KG,
                       OUTCOME_FAILURE, OUTCOME_NA, OUTCOME_SUCCESS,
-                      TORQUE_MAX_MNM, TOOLS, settings)
+                      TORQUE_MAX_NM, TOOLS, settings)
 from ..diagnostics import DOWN, OK, STALE, UNKNOWN
 from ..logbridge import log
 from ..naming import build_folder_name
@@ -197,7 +197,7 @@ class ExperimentTab:
             with ui.row().classes('items-center gap-3 w-full no-wrap'):
                 ui.label('Force').classes('text-sm w-16')
                 self.force_slider = ui.slider(
-                    min=0.0, max=FORCE_MAX_N, step=0.01,
+                    min=0.0, max=FORCE_MAX_N, step=0.05,
                     value=settings.max_force_n,
                     on_change=self._on_force).classes('flex-grow').props(
                         'color=secondary label-always')
@@ -207,8 +207,8 @@ class ExperimentTab:
             with ui.row().classes('items-center gap-3 w-full no-wrap'):
                 ui.label('Torque').classes('text-sm w-16')
                 self.torque_slider = ui.slider(
-                    min=0.0, max=TORQUE_MAX_MNM, step=0.1,
-                    value=settings.max_torque_mnm,
+                    min=0.0, max=TORQUE_MAX_NM, step=0.05,
+                    value=settings.max_torque_nm,
                     on_change=self._on_torque).classes('flex-grow').props(
                         'color=secondary label-always')
                 self.torque_value = ui.label('').classes(
@@ -266,20 +266,31 @@ class ExperimentTab:
         if state.outcome == OUTCOME_NA:
             ui.notify('Set the capture outcome before stopping.', type='warning')
             return
+        # 'reset' carries its own timestamp, so a run recorded long after the
+        # last reset - or with no reset at all, where it is null - is visible
+        # in the metadata rather than implied by it.
         self.recorder.stop(state.outcome, extra_meta={
-            'camera_offset': self.camera.summary(),
-            'camera_fov_deg': settings.cam_fov_deg,
+            'cameras': self.camera.summary(),
             'robot_ns': settings.ns,
+            'reset': state.last_reset,
         })
         self.refresh()
 
     def confirm_reset(self) -> None:
         with ui.dialog() as dialog, ui.card():
             ui.label('Reset the experiment?').classes('text-lg')
-            ui.label('Removes any spawned tool, then spawns "{}" in front of '
-                     'the perch cam with a random pose and a small impulse.'
-                     .format(settings.tool_label)
-                     ).classes('text-sm').style('color: {}'.format(theme.MUTED))
+            steps = ['Clear the system monitor fault state',
+                     'Remove any spawned tool, then spawn "{}" in front of the '
+                     'perch cam with a random pose and a small impulse'
+                     .format(settings.tool_label)]
+            if settings.home_pose:
+                steps.insert(0, 'Return the robot to its home pose')
+            else:
+                steps.insert(0, 'Leave the robot where it is - no home pose '
+                                'captured yet')
+            for index, step in enumerate(steps, 1):
+                ui.label('{}. {}'.format(index, step)).classes(
+                    'text-sm').style('color: {}'.format(theme.MUTED))
             if self.recorder.recording:
                 ui.label('A recording is in progress. Stop it first.'
                          ).classes('text-sm').style('color: {}'.format(theme.RED))
@@ -323,23 +334,30 @@ class ExperimentTab:
         self._update_impulse_hint()
 
     def _on_torque(self, event) -> None:
-        settings.max_torque_mnm = float(event.value or 0.0)
+        settings.max_torque_nm = float(event.value or 0.0)
         settings.save()
         self._update_impulse_hint()
 
     def _update_impulse_hint(self) -> None:
-        """Show what the sliders actually mean in units the operator cares about."""
+        """Show what the sliders actually mean in units the operator cares about.
+
+        Computed from the tool's real mass and inertia (config.py), read off
+        the SDF. The figures are a prediction; the log prints the MEASURED
+        velocity after every reset, and that is the one to believe.
+        """
         self.force_value.set_text('{:.2f} N'.format(settings.max_force_n))
-        self.torque_value.set_text('{:.1f} mNm'.format(settings.max_torque_mnm))
+        self.torque_value.set_text('{:.2f} Nm'.format(settings.max_torque_nm))
 
         speed = settings.max_force_n * IMPULSE_S / NOMINAL_TOOL_MASS_KG
         spin = math.degrees(
             settings.max_torque_nm * IMPULSE_S / NOMINAL_TOOL_INERTIA)
         self.impulse_hint.set_text(
-            'The impulse is applied for {:.1f} s, then the tool coasts. At these '
-            'maxima a nominal {:.1f} kg tool leaves at up to {:.3f} m/s and '
-            '{:.0f} deg/s. Each axis is scaled randomly within that.'.format(
-                IMPULSE_S, NOMINAL_TOOL_MASS_KG, speed, spin))
+            'The impulse is applied for {:.1f} s, then the tool coasts. At '
+            'these maxima a {:.1f} kg tool with {:.3f} kg.m2 inertia leaves at '
+            'up to {:.3f} m/s and {:.0f} deg/s. Each axis is scaled randomly '
+            'within that; the log reports what was actually measured.'.format(
+                IMPULSE_S, NOMINAL_TOOL_MASS_KG, NOMINAL_TOOL_INERTIA,
+                speed, spin))
 
     def _on_axis(self, group: str, axis: str, value: bool) -> None:
         getattr(settings, group)[axis] = bool(value)

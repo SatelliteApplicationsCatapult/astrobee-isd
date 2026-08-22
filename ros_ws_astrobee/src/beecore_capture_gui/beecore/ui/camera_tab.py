@@ -1,7 +1,17 @@
-"""Camera control for the standalone follow_cam model.
+"""Camera control for the four standalone follow_cam models.
 
-The camera is its own Gazebo model, pinned to the robot by software. Nothing
+Each camera is its own Gazebo model, pinned to the robot by software. Nothing
 here touches the Astrobee URDF.
+
+ONE CAMERA AT A TIME
+--------------------
+The selector at the top chooses which camera every control on this tab acts
+on: the pad, the rotation buttons, the offset readout, "Set as default", the
+optics and the respawn. `self.index` is the only thing that changes; there is
+one set of widgets, refreshed from the selected camera's settings, rather than
+four copies of the tab.
+
+The selection is per browser tab, not persisted - it is a view, not a setting.
 
 DIRECTIONS
 ----------
@@ -26,7 +36,8 @@ import threading
 
 from nicegui import ui
 
-from ..config import (CAM_FOV_MAX_DEG, CAM_FOV_MIN_DEG, CAM_ROT_LIMIT_RAD,
+from ..config import (CAM_COUNT, CAM_FOV_MAX_DEG, CAM_FOV_MIN_DEG,
+                      CAM_RESOLUTIONS, CAM_ROT_LIMIT_RAD,
                       CAM_ROTARY, CAM_STEP_DEG_MAX, CAM_STEP_DEG_MIN,
                       CAM_STEP_MM_MAX, CAM_STEP_MM_MIN, CAM_TRAVEL_M,
                       VIEWER_WINDOW_NAME, settings)
@@ -56,12 +67,26 @@ class CameraTab:
 
     def __init__(self, camera) -> None:
         self.camera = camera
+        self.index = 0
         self._values = {}
         self._defaults = {}
 
     # --- build ---------------------------------------------------------------
 
     def build(self) -> None:
+        with ui.row().classes('w-full px-4 pt-4 items-center gap-4'):
+            ui.label('Editing').classes('eyebrow')
+            self.selector = ui.toggle(
+                {index: 'Camera {}'.format(index + 1)
+                 for index in range(CAM_COUNT)},
+                value=0, on_change=self._on_select,
+                # color paints the unselected segments, toggle-color the
+                # selected one. Both resolve to violet globally; .seg-toggle
+                # in theme.py is what pulls the unselected three darker.
+            ).props('no-caps unelevated color=secondary toggle-color=primary'
+                    ).classes('seg-toggle')
+            self.cam_status = ui.label('').classes('text-xs')
+
         with ui.row().classes('w-full gap-4 p-4 items-start no-wrap'):
             with ui.column().classes('gap-4').style('flex: 0 0 400px'):
                 self._build_pad()
@@ -176,12 +201,10 @@ class CameraTab:
                           ).props('color=secondary unelevated')
                 ui.button('Reset to default', icon='restart_alt',
                           on_click=self._reset).props('outline color=warning')
-                ui.button('Zero', icon='exposure_zero',
-                          on_click=self._zero).props('flat')
 
-            ui.label('Moves take effect on the next pin, within ~16 ms. The '
-                     'offset persists across restarts; "Set as default" is what '
-                     '"Reset" returns to.'
+            ui.label('Moves take effect on the next pin, within ~16 ms. Each '
+                     'camera keeps its own offset and its own default, both '
+                     'persisted; "Set as default" is what "Reset" returns to.'
                      ).classes('text-xs mt-2').style('color: {}'.format(theme.MUTED))
 
     def _build_optics(self) -> None:
@@ -190,10 +213,10 @@ class CameraTab:
             with ui.row().classes('items-center gap-4 w-full no-wrap'):
                 self.fov_slider = ui.slider(
                     min=CAM_FOV_MIN_DEG, max=CAM_FOV_MAX_DEG, step=1,
-                    value=settings.cam_fov_deg).classes('flex-grow').props(
-                        'color=secondary label-always')
+                    value=self.camera.config(self.index)['fov_deg'],
+                    ).classes('flex-grow').props('color=secondary label-always')
                 self.fov_number = ui.number(
-                    'FOV', value=settings.cam_fov_deg,
+                    'FOV', value=self.camera.config(self.index)['fov_deg'],
                     min=CAM_FOV_MIN_DEG, max=CAM_FOV_MAX_DEG, step=1,
                     ).props('outlined dense suffix=deg').classes('w-32')
             self.fov_slider.on('update:model-value',
@@ -201,6 +224,13 @@ class CameraTab:
             self.fov_number.on('blur',
                                lambda _e: self.fov_slider.set_value(
                                    self.fov_number.value))
+
+            with ui.row().classes('items-center gap-4 w-full no-wrap mt-2'):
+                self.res_select = ui.select(
+                    list(CAM_RESOLUTIONS.keys()),
+                    value=settings.resolution_label(self.index),
+                    label='Resolution', on_change=self._on_resolution,
+                ).props('outlined dense').classes('w-64')
 
             with ui.row().classes('items-center gap-3 mt-2 flex-wrap'):
                 self.respawn_btn = ui.button(
@@ -216,18 +246,26 @@ class CameraTab:
             self.status = ui.label('').classes('text-xs mt-2')
 
             ui.label('FOV and resolution are baked into the model at spawn, so '
-                     'changing them deletes and respawns it. The image topic '
-                     'drops for about a second - never do this mid-recording.'
+                     'changing either deletes and respawns THAT camera. Its '
+                     'image topic drops for about a second; the viewer '
+                     'reconnects on its own within a few seconds and the other '
+                     'three are unaffected. Four sensors means four render '
+                     'passes - resolution is the setting that costs.'
                      ).classes('text-xs mt-2').style('color: {}'.format(theme.AMBER))
 
     # --- actions -------------------------------------------------------------
+
+    def _on_select(self, event) -> None:
+        self.index = int(event.value or 0)
+        self.refresh()
+        self._load_optics()
 
     def _nudge(self, axis: str, direction: int) -> None:
         step = (settings.cam_step_rad if axis in CAM_ROTARY
                 else settings.cam_step_m)
         delta = step * direction * _SIGN[axis]
-        current = self.camera.offset.get(axis, 0.0)
-        self.camera.offset[axis] = _clamp(axis, current + delta)
+        offset = self.camera.offset(self.index)
+        offset[axis] = _clamp(axis, offset.get(axis, 0.0) + delta)
         settings.save()
         self.refresh()
 
@@ -251,32 +289,42 @@ class CameraTab:
         self.step_deg_value.set_text('{:.0f} deg'.format(settings.cam_step_deg))
 
     def _reset(self) -> None:
-        self.camera.reset()
-        self.refresh()
-
-    def _zero(self) -> None:
-        self.camera.zero()
+        self.camera.reset(self.index)
         self.refresh()
 
     def _set_default(self) -> None:
-        self.camera.set_as_default()
+        self.camera.set_as_default(self.index)
         self.refresh()
-        ui.notify('Saved as the default offset.', type='positive')
+        ui.notify('Saved as the default offset for camera {}.'.format(
+            self.index + 1), type='positive')
+
+    def _on_resolution(self, event) -> None:
+        size = CAM_RESOLUTIONS.get(event.value)
+        if not size:
+            return
+        camera = self.camera.config(self.index)
+        camera['width'], camera['height'] = size
+        settings.save()
+        self._set_status(
+            'Camera {} set to {} x {} - press Apply optics to respawn it.'
+            .format(self.index + 1, *size), theme.AMBER)
 
     def _respawn(self) -> None:
         if state.recording_guard:
             ui.notify('Not while recording - the image topic would drop.',
                       type='warning')
             return
-        settings.cam_fov_deg = float(self.fov_number.value or 90)
+        index = self.index
+        self.camera.config(index)['fov_deg'] = float(self.fov_number.value or 90)
         settings.save()
-        self._set_status('Respawning ...', theme.AMBER)
+        self._set_status('Respawning camera {} ...'.format(index + 1),
+                         theme.AMBER)
 
         def worker() -> None:
             try:
-                self.camera.spawn()
+                self.camera.spawn(index)
             except FollowCamError as exc:
-                log.error('follow_cam respawn failed: %s', exc)
+                log.error('Camera %d respawn failed: %s', index + 1, exc)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -294,8 +342,10 @@ class CameraTab:
             "window.open('/view', '{}');".format(VIEWER_WINDOW_NAME))
 
     def _despawn(self) -> None:
-        threading.Thread(target=self.camera.despawn, daemon=True).start()
-        self._set_status('Removed.', theme.MUTED)
+        index = self.index
+        threading.Thread(target=lambda: self.camera.despawn(index),
+                         daemon=True).start()
+        self._set_status('Camera {} removed.'.format(index + 1), theme.MUTED)
 
     def _set_status(self, text: str, colour: str) -> None:
         self.status.set_text(text)
@@ -303,10 +353,17 @@ class CameraTab:
 
     # --- refresh -------------------------------------------------------------
 
+    def _load_optics(self) -> None:
+        """Point the optics widgets at the newly selected camera."""
+        camera = self.camera.config(self.index)
+        self.fov_slider.set_value(camera['fov_deg'])
+        self.fov_number.set_value(camera['fov_deg'])
+        self.res_select.set_value(settings.resolution_label(self.index))
+
     def refresh(self) -> None:
         self._update_step_labels()
-        offset = self.camera.offset
-        defaults = self.camera.defaults
+        offset = self.camera.offset(self.index)
+        defaults = self.camera.defaults(self.index)
         for axis, _label, unit in _ROWS:
             raw = offset.get(axis, 0.0)
             default = defaults.get(axis, 0.0)
@@ -318,10 +375,27 @@ class CameraTab:
                 self._defaults[axis].set_text('{:+.3f}'.format(default))
 
     def refresh_status(self) -> None:
-        """Called from the page tick."""
-        if self.camera.spawned:
-            self._set_status('Camera live, pinned to {}.'.format(settings.ns),
-                             theme.GREEN)
+        """Called from the page tick.
+
+        Two readings: the selected camera (below the buttons) and all four at
+        a glance (beside the selector), so switching camera is not the only
+        way to find out one of them failed to spawn.
+        """
+        if self.camera.spawned(self.index):
+            self._set_status('Camera {} live, pinned to {}. Topic {}'.format(
+                self.index + 1, settings.ns,
+                settings.image_topic(self.index)), theme.GREEN)
         else:
-            self._set_status('Camera not spawned.', theme.MUTED)
+            self._set_status('Camera {} not spawned.'.format(self.index + 1),
+                             theme.MUTED)
+
+        live = [index + 1 for index in range(CAM_COUNT)
+                if self.camera.spawned(index)]
+        self.cam_status.set_text('{} of {} spawned{}'.format(
+            len(live), CAM_COUNT,
+            '' if len(live) == CAM_COUNT else '  (live: {})'.format(
+                ', '.join(str(n) for n in live) or 'none')))
+        self.cam_status.style('color: {}'.format(
+            theme.GREEN if len(live) == CAM_COUNT else theme.AMBER))
+
         self.respawn_btn.set_enabled(not state.recording_guard)
