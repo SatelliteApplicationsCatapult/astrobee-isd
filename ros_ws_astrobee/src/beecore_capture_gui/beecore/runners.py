@@ -105,7 +105,7 @@ def ensure_js0() -> None:
 # `prepare` runs immediately before the command and may raise RunnerError.
 RUNNERS = (
     ('joy_node', 'Joystick Node',
-     ['rosrun', 'joy', 'joy_node', '_autorepeat_rate:=20'], ensure_js0),
+     ['rosrun', 'joy', 'joy_node', '_autorepeat_rate:=20', '_default_trig_val:=true'], ensure_js0),
     ('joy_convert', 'Joystick Command Converter',
      ['rosrun', 'astrobee_joy_teleop', 'astrobee_joy_arm_wrench.py'], None),
     ('fam_control', 'Custom FAM Control',
