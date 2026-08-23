@@ -39,36 +39,89 @@ To see a runner's output, run its command in a terminal.
 
 import os
 import signal
+import stat
 import subprocess
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from .logbridge import log
 
 STOP_TIMEOUT_S = 10         # roslaunch shutdown is not instant
 START_GRACE_S = 1.0         # long enough to catch "package not found"
 
-# key -> (label, argv). Order is the order they appear in the UI.
-RUNNERS = (
-    ('joy_node', 'Joystick Node',
-     ['rosrun', 'joy', 'joy_node', '_autorepeat_rate:=20']),
-    ('joy_convert', 'Joystick Command Converter',
-     ['rosrun', 'astrobee_joy_teleop', 'astrobee_joy_arm_wrench.py']),
-    ('fam_control', 'Custom FAM Control',
-     ['roslaunch', 'astrobee_ros_demo', 'python_joy_client.launch']),
-)
-
 
 class RunnerError(Exception):
     """Raised for conditions the operator needs to see."""
 
 
+# --- pre-start hooks ---------------------------------------------------------
+
+JS_DEVICE = '/dev/input/js0'
+JS_MAJOR, JS_MINOR = 13, 0      # linux joystick char device
+JS_MODE = 0o666
+
+
+def ensure_js0() -> None:
+    """Recreate /dev/input/js0 if it has vanished.
+
+    The node disappears from inside the container often enough that the only
+    other remedy is restarting the container. Recreating it is what the
+    operator was doing by hand:
+
+        mknod /dev/input/js0 c 13 0
+        chmod 666 /dev/input/js0
+
+    The explicit chmod is not redundant: mknod's mode is masked by the
+    process umask, so 0666 typically lands as 0644.
+
+    This recreates the NODE, not the device. If the underlying joystick is
+    genuinely gone rather than just its /dev entry, joy_node will open the
+    node and fail on read - a node existing is not evidence a gamepad does.
+    Gamepad Data on the diagnostics column is what settles that.
+
+    Raises rather than warning: joy_node does not exit when the device is
+    missing, it retries, so a silent failure here would leave a green switch
+    over a runner that can never work.
+    """
+    if os.path.exists(JS_DEVICE):
+        return
+
+    log.warning('%s is missing; recreating it.', JS_DEVICE)
+    directory = os.path.dirname(JS_DEVICE)
+    try:
+        if not os.path.isdir(directory):
+            os.makedirs(directory)
+        os.mknod(JS_DEVICE, stat.S_IFCHR | JS_MODE,
+                 os.makedev(JS_MAJOR, JS_MINOR))
+        os.chmod(JS_DEVICE, JS_MODE)
+    except OSError as exc:
+        raise RunnerError(
+            'Could not recreate {} ({}). mknod needs root or CAP_MKNOD inside '
+            'the container.'.format(JS_DEVICE, exc))
+    log.info('Recreated %s as char %d:%d, mode %o.',
+             JS_DEVICE, JS_MAJOR, JS_MINOR, JS_MODE)
+
+
+# key -> (label, argv, prepare). Order is the order they appear in the UI.
+# `prepare` runs immediately before the command and may raise RunnerError.
+RUNNERS = (
+    ('joy_node', 'Joystick Node',
+     ['rosrun', 'joy', 'joy_node', '_autorepeat_rate:=20'], ensure_js0),
+    ('joy_convert', 'Joystick Command Converter',
+     ['rosrun', 'astrobee_joy_teleop', 'astrobee_joy_arm_wrench.py'], None),
+    ('fam_control', 'Custom FAM Control',
+     ['roslaunch', 'astrobee_ros_demo', 'python_joy_client.launch'], None),
+)
+
+
 class Runner:
     """One managed command."""
 
-    def __init__(self, key: str, label: str, argv: List[str]) -> None:
+    def __init__(self, key: str, label: str, argv: List[str],
+                 prepare: Optional[Callable[[], None]] = None) -> None:
         self.key = key
         self.label = label
         self.argv = list(argv)
+        self.prepare = prepare
         self.proc = None            # type: Optional[subprocess.Popen]
         self._pgid = None           # type: Optional[int]
         self.desired = False        # operator intent; never set by poll()
@@ -85,6 +138,16 @@ class Runner:
     def start(self) -> None:
         if self.running:
             return
+
+        # Before the process, not after: a fix that lands once the node is
+        # already retrying is a fix the node may never notice.
+        if self.prepare is not None:
+            try:
+                self.prepare()
+            except RunnerError:
+                self.detail = 'pre-start check failed'
+                raise
+
         try:
             self.proc = subprocess.Popen(
                 self.argv, preexec_fn=os.setsid,
@@ -195,8 +258,8 @@ class RunnerSet:
     """The three runners, kept in declared order."""
 
     def __init__(self) -> None:
-        self.runners = [Runner(key, label, argv)
-                        for key, label, argv in RUNNERS]
+        self.runners = [Runner(key, label, argv, prepare)
+                        for key, label, argv, prepare in RUNNERS]
         self._by_key = {runner.key: runner for runner in self.runners}
 
     def __iter__(self):
