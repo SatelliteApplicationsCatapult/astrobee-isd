@@ -1,12 +1,24 @@
 <?xml version="1.0"?>
 <launch>
+    <!-- Sim launcher -->
     <include file="$(find astrobee)/launch/sim.launch" >
         <arg name="dds" value="false"/>
-        <arg name="rviz" value="true"/>
-        <arg name="sviz" value="true"/>
+        <arg name="rviz" value="false"/>
+        <arg name="sviz" value="false"/>
         <arg name="default_robot" value="false"/>
         <!-- Spawn Honey -->
         <arg name="honey" value="true"/>
         <arg name="honey_pose" default="11 -4 4.8 0 0 0 1"/>
     </include>
+
+    <!-- Rviz dummy frame, to overcome orbit cam limitations and show
+         perch arm upwards. Rotation arg order is yaw, pitch, roll. -->
+    <node name="rviz_up" pkg="tf2_ros" type="static_transform_publisher"
+        args="0 0 0 0 0 3.14159 honey/body rviz_up"/>
+
+    <!-- Custom RViz view -->
+    <node name="rviz_node" pkg="rviz" type="rviz"
+        respawn="true"
+        output="log"
+        args="-d $(find astrobee_ros_demo)/rviz/tool_capture.rviz"/>
 </launch>

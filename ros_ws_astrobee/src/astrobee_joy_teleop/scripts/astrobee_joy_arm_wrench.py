@@ -160,7 +160,11 @@ class AstrobeeJoyArmWrench:
 
         cmd = WrenchStamped()
         cmd.header.stamp = rospy.Time.now()
-        cmd.header.frame_id = "body"  # Apply forces relative to robot body frame
+        # Apply forces relative to robot body frame
+        if NS:
+            cmd.header.frame_id = "{}/body".format(NS)
+        else:
+            cmd.header.frame_id = "body"
 
         # Map analog sticks to linear forces (N)
         cmd.wrench.force.x = axes[AXIS_FORCE_X] * self.max_force
