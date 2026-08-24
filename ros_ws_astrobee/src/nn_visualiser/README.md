@@ -40,6 +40,15 @@ nn_visualiser/
 
 ## How it draws
 
+**Playback is wall-clock locked, and honest about it.** The playhead advances
+by real elapsed time with no clamp on `dt`, so a slow renderer drops frames
+rather than slowing down. An earlier `Math.min(0.1, ...)` silently discarded
+any time beyond 100 ms, which made playback run at `0.1 * render_fps` below
+10 fps -- 0.5x at 5 fps -- while the clock readout still claimed 1x. The
+backgrounded-tab leap that clamp was guarding against is handled by resetting
+the frame clock on `visibilitychange`. Render fps is shown next to the frame
+counter so a struggling renderer is visible rather than inferred.
+
 **Python ships the whole sequence once.** A 46 s bag at 30 fps is 1394 frames
 × 232 floats = 1.3 MB, fetched in one request. Weights are another 41 KB.
 After that there is **no websocket traffic during playback at all** — the
@@ -206,13 +215,13 @@ Verified against the real bag:
 
 ### Ribbon density
 
-At the shipped settings the 128->64 gap renders as a near-solid slab: 128
-ribbons, each spanning a large vertical extent, additively composited. It
-looks striking and it does bury the individual hidden neurons behind it. If
-you want the neuron columns to read through, the knob is the ribbon alpha in
-`canvas.js` -- `0.055 + 0.10 * v * v`. Halving both constants, or dividing
-them by `sqrt(gA)` so a wide fan-out does not accumulate more ink than a
-narrow one, are the two obvious options. Not changed unasked.
+Ribbon alpha is `(0.026 + 0.055 * v^2) * alphaK`, with
+`alphaK = sqrt(16*8) / sqrt(gA*gB)`. The normalisation matters because
+ribbons composite additively, so `gA * gB` of them overlapping in the same
+space saturate to a solid slab -- and without it, ink density is a side effect
+of how many groups a layer happens to have rather than of the data. Net effect
+against the first drop: 0.41x on the input gap, 0.52x on the hidden gap, 0.79x
+on the output gap. Turn it up in `canvas.js` if it now reads too faint.
 
 ## Known limits
 

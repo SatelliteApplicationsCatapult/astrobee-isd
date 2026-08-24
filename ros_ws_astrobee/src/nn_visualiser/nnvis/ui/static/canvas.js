@@ -77,6 +77,12 @@
       gaps.push({
         k: k, nA: nA, nB: nB, W: W, gA: gA, gB: gB,
         bandsA: bandsA, bandsB: bandsB, Wsum: Wsum, Wabs: Wabs,
+        // Ribbons are composited additively, so gA*gB of them overlapping in
+        // the same space saturate to a slab.  Normalising by sqrt(gA*gB)
+        // against the 16x8 gap as reference keeps ink density roughly equal
+        // across gaps instead of making it a side effect of how many groups a
+        // layer happens to have.
+        alphaK: Math.sqrt(16 * 8) / Math.sqrt(gA * gB),
         contrib: new Float32Array(nA * nB),
         blkAbs: new Float32Array(gA * gB), blkSgn: new Float32Array(gA * gB),
       });
@@ -172,7 +178,8 @@
             const yb = bandY(colB, g.bandsB[B]);
             const sgn = g.blkSgn[A * g.gB + B];
             const c = sgn < 0 ? AMBER : ELEC;
-            ctx.fillStyle = rgba(mix(GREY, c, Math.pow(v, 0.8)), 0.055 + 0.10 * v * v);
+            ctx.fillStyle = rgba(mix(GREY, c, Math.pow(v, 0.8)),
+                                 (0.026 + 0.055 * v * v) * g.alphaK);
             ctx.beginPath();
             ctx.moveTo(colA.x, ya[0]);
             ctx.bezierCurveTo((colA.x + colB.x) / 2, ya[0], (colA.x + colB.x) / 2, yb[0], colB.x, yb[0]);
@@ -325,7 +332,8 @@
     ctx.fillText((idx / m.fps).toFixed(2) + ' s  /  ' + m.duration.toFixed(2) + ' s', 24, 28);
     ctx.font = '400 11px ' + MONO;
     ctx.fillStyle = rgba(TEXT, 0.65);
-    ctx.fillText('frame ' + idx + ' / ' + (m.n_frames - 1) + '   x' + S.rate.toFixed(2), 24, 48);
+    ctx.fillText('frame ' + idx + ' / ' + (m.n_frames - 1) + '   x' + S.rate.toFixed(2)
+                 + '   ' + (S.fps || 0).toFixed(0) + ' fps', 24, 48);
 
     // gripper state banner
     const g = actual[m.sizes[3] - 1] > 0.5;
@@ -337,8 +345,14 @@
 
   function tick(now) {
     if (!S.meta) { requestAnimationFrame(tick); return; }
-    const dt = S.last ? Math.min(0.1, (now - S.last) / 1000) : 0;
+    // No clamp on dt.  The old Math.min(0.1, ...) silently discarded any time
+    // beyond 100 ms, so below 10 fps the playhead advanced at 0.1 * render_fps
+    // -- 0.5x at 5 fps -- while the clock readout claimed 1x.  The clamp only
+    // existed to stop a leap after a backgrounded tab, which the
+    // visibilitychange reset below handles properly.
+    const dt = S.last ? (now - S.last) / 1000 : 0;
     S.last = now;
+    S.fps = S.fps ? S.fps * 0.9 + (dt > 0 ? 0.1 / dt : 0) : (dt > 0 ? 1 / dt : 0);
     if (S.playing) {
       S.t += dt * S.rate;
       if (S.t >= S.meta.duration) S.t = 0;
@@ -393,6 +407,11 @@
     const sl = document.getElementById('nnvis-scrub');
     if (sl) sl.value = String(S.t / S.meta.duration * 1000);
   };
+
+  // Backgrounded tabs stop firing requestAnimationFrame.  Zeroing S.last means
+  // the first frame back has dt = 0, so the playhead does not leap forward --
+  // this is what the removed dt clamp was actually for.
+  document.addEventListener('visibilitychange', function () { S.last = 0; });
 
   requestAnimationFrame(tick);
 })();

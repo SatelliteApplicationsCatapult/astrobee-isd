@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BEECORE network visualiser.
+"""BEECORE Neural Network Visualiser.
 
     python3 run_vis.py            # then open http://localhost:8095
 """

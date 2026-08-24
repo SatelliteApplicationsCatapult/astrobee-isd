@@ -83,7 +83,7 @@ def main():
     ui.dark_mode(True)
 
     with ui.column().classes('w-full items-center gap-4 p-6'):
-        ui.label('BEECORE — network visualiser').style(
+        ui.label('BEECORE — Neural Network Visualiser').style(
             'font:600 15px ui-monospace,Menlo,monospace;color:#D9E2F0;'
             'letter-spacing:.14em;')
 
