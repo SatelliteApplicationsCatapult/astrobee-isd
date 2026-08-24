@@ -311,9 +311,6 @@ class SimpleControlExample(object):
             tin = rospy.get_time()
 
             # self.u_traj = np.zeros((6, ))  # TODO(@User): use your controller here
-            # self.u_traj[0:3] = self.joy_wrench[0:3]
-            # self.u_traj[3:] = self.joy_wrench[3:]
-            print(self.joy_wrench)
             self.u_traj = self.joy_wrench
 
             tout = rospy.get_time() - tin
