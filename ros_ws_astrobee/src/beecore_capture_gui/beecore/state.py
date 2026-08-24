@@ -20,6 +20,11 @@ class RuntimeState:
     # whether that call was accepted. custom_start is None until the first
     # call; custom_start_failed says the last attempt was refused, which is
     # ambiguous - we do not know what the node is actually doing.
+    #
+    # BOTH ARE CLEARED BACK TO None/False when Diagnostics sees the start
+    # service disappear. They describe a conversation with one instance of the
+    # node, and that instance is gone. Reporting them against its replacement
+    # would be a lie, not staleness - the new node starts with start = False.
     custom_start: Optional[bool] = None
     custom_start_failed: bool = False
 
