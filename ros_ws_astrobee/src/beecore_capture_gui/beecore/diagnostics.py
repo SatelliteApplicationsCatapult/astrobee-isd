@@ -24,6 +24,23 @@ It used to run inside the UI refresh, which had the view driving the model.
 /honey/start is a SetBool, so the response is real feedback about whether the
 call was accepted. It is not feedback about what the node does afterwards, so
 the service disappearing is graded ambiguous rather than off.
+
+TWO KINDS OF "WE DO NOT KNOW"
+----------------------------
+A call that FAILED is ambiguous: the node may or may not have acted, so
+custom_start is deliberately left alone and the LED goes amber.
+
+A service that has GONE AWAY is not ambiguous. It is positive evidence that
+the node behind it died, and a node that has just restarted has not been
+called by anyone. So the disappearance INVALIDATES the cached answer instead
+of merely being displayed on top of it.
+
+Without that, stopping and restarting Custom FAM Control put the LED straight
+back to green "last call set true and was accepted" - reporting a call made to
+a process that no longer exists. The node comes up with start = False, so the
+LED was not just stale, it was inverted. That is the same defect that got the
+GNC enable switch deleted: an indicator showing what the GUI once commanded
+rather than what is true.
 """
 
 import threading
@@ -65,6 +82,10 @@ class Diagnostics:
         self._subscribed_ns = None
         self._stop = threading.Event()
         self._fault_value = None        # type: Optional[int]
+        # Was the start service advertised last time we looked? Only the
+        # advertised -> gone TRANSITION invalidates; polling "not there"
+        # forever must not keep clearing (and keep logging).
+        self._start_seen = False
         keys = ['joy', 'points', 'fault']
         if self.runners is not None:
             keys.extend(runner.key for runner in self.runners)
@@ -221,17 +242,31 @@ class Diagnostics:
         """SetBool answers, so green/red are earned. Amber is genuine doubt."""
         reading = self.readings['start']
         name = self.start_service
+        available = service_available(name)
+
+        # Advertised -> gone means the node restarted, and nobody has called
+        # the new one. Discard what we knew about the old one; see the module
+        # docstring. Checked BEFORE the branches below so a stale failure flag
+        # cannot outlive the node it belonged to either.
+        if self._start_seen and not available:
+            if state.custom_start is not None or state.custom_start_failed:
+                log.info('%s is gone; discarding the cached start state.',
+                         name)
+            state.custom_start = None
+            state.custom_start_failed = False
+        self._start_seen = available
+
         if state.custom_start_failed:
             reading.status = WARN
             reading.detail = 'last call failed - state unknown'
             return
-        if not service_available(name):
+        if not available:
             reading.status = WARN
             reading.detail = 'service not advertised - state unknown'
             return
         if state.custom_start is None:
             reading.status = UNKNOWN
-            reading.detail = 'available, not called this session'
+            reading.detail = 'available, no call since it appeared'
             return
         reading.status = OK if state.custom_start else DOWN
         reading.detail = 'last call set {} and was accepted'.format(
