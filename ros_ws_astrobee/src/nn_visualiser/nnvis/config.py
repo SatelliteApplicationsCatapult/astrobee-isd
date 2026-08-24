@@ -52,10 +52,13 @@ EDGE_CAP = 220
 
 # ---- canvas ------------------------------------------------------------
 CANVAS_W = 1180
-CANVAS_H = 760
-COL_X = [110, 420, 720, 950, 1075]     # in, h1, h2, predicted, actual
-COL_TOP = 96
-COL_BOTTOM = 716
+CANVAS_H = 840
+COL_X = [136, 430, 722, 950, 1075]     # in, h1, h2, predicted, actual
+# Headers sit at COL_TOP-56 and their sub-captions at COL_TOP-40.  The clock
+# occupies y=28 and the frame counter y=48, so COL_TOP below ~150 puts the
+# column headings into the frame counter.
+COL_TOP = 168
+COL_BOTTOM = 796
 
 PALETTE = {
     'bg': '#07080B',

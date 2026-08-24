@@ -19,6 +19,15 @@ _STATE = {'meta': None, 'frames': b'', 'weights': b'', 'log': []}
 _STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 app.add_static_files('/nnvis_static', _STATIC)
 
+# Cache-buster for canvas.js.  The fetches inside canvas.js already carry
+# ?v=<timestamp>, but the <script> tag loading canvas.js did not -- so a
+# browser that had visited once kept running the stale renderer from cache,
+# and re-copying the folder changed nothing on screen.
+try:
+    _JS_V = str(int(os.path.getmtime(os.path.join(_STATIC, 'canvas.js'))))
+except OSError:
+    _JS_V = '0'
+
 
 @app.get('/nnvis/meta')
 def _meta():
@@ -69,7 +78,7 @@ TRANSPORT = '''
 @ui.page('/')
 def main():
     ui.add_head_html(
-        '<script src="/nnvis_static/canvas.js"></script>'
+        '<script src="/nnvis_static/canvas.js?v=%s"></script>' % _JS_V +
         '<style>body{background:#0A0C11;}</style>')
     ui.dark_mode(True)
 

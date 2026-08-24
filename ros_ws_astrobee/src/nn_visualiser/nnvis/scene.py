@@ -6,11 +6,23 @@ which is a single fetch.  In exchange there is no per-frame websocket traffic
 at all, playback cannot stutter because Python is busy, and scrubbing, pause
 and rate are pure client-side operations.
 """
+import math
+
 import numpy as np
 
 from . import config as C
 from . import dataset
 from .network import Network
+
+
+def _dp(scale):
+    """Decimal places giving ~3 significant figures across a channel's range.
+
+    toFixed(2) on a torque channel whose full range is 0.05 Nm leaves five
+    printable levels across the whole range -- a displayed 0.01 could be
+    anything from 0.005 to 0.0149.
+    """
+    return int(min(4, max(2, 2 - math.floor(math.log10(max(scale, 1e-9))))))
 
 
 def build(path, robot, tool, log=print):
@@ -54,7 +66,21 @@ def build(path, robot, tool, log=print):
 
     weights = np.concatenate([W.ravel() for W, _ in net.layers]).astype(np.float32)
 
+    # The printed number is in physical units; the colour is that number
+    # divided by the channel's own scale.  Those are different quantities and
+    # the scales differ by 16x between force and torque, so the denominator is
+    # printed next to every channel rather than left implicit.
+    in_caption = [u'\u03c3%.3g' % v for v in std]
+    out_caption = [u'%s%.3g' % ('' if i == 6 else u'\u00b1', v)
+                   for i, v in enumerate(out_scales)]
+    out_caption[-1] = u'0\u20131'
+
     meta = {
+        'in_dp': [_dp(v) for v in std],
+        'out_dp': [_dp(v) for v in out_scales],
+        'in_caption': in_caption,
+        'out_caption': out_caption,
+        'hidden_caption': ['p97 %.2f' % scales[k] for k in (1, 2)],
         'sizes': net.sizes,
         'n_frames': n,
         'stride': frames.shape[1],

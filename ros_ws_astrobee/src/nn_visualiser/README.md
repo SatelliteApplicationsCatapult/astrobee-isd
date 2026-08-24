@@ -78,9 +78,24 @@ matrices, so the drawn network is numerically identical to the fitted one.
 
 **Colour.** Grey → electric blue for ReLU activations, which are never
 negative. Amber ← grey → electric blue for the signed channels: observations
-and F/T. Violet for the gripper. Output channels are scaled **per channel** —
-force saturates at 0.8 N and torque at 0.05 Nm, so one shared scale renders
-every torque channel flat grey.
+and F/T. Violet for the gripper. Both ramps run through `pow(t, 0.65)` — a
+linear ramp makes almost everything look dead.
+
+Output channels are scaled **per channel** — force saturates at 0.8 N and
+torque at 0.05 Nm, so one shared scale renders every torque channel flat grey.
+
+**The printed number and the colour are different quantities**, and every
+channel prints its own denominator so they can't be confused. In the
+observation column the colour is `(value − mean) / 3σ`, i.e. "how unusual is
+this for this channel", while the number is metres or rad/s — so `pz = 0.01`
+saturates (3σ below its mean) while `qz = 0.01` stays grey (sitting at its
+mean). The `σ` caption is the missing denominator. In the action columns the
+`±` caption plays the same role: without it, the same printed 0.01 is 6×
+brighter on a torque channel than a force one.
+
+Decimal places are per channel, ~3 significant figures across each channel's
+range. `toFixed(2)` on a torque channel whose full range is 0.05 Nm leaves
+five printable levels across the whole range.
 
 ## The network is a stand-in, and not a trained one
 
@@ -186,8 +201,18 @@ Verified against the real bag:
 - `ui.run_javascript(...)` is called fire-and-forget in `page.py`. That is
   correct on NiceGUI ≥1.4. Older versions want `respond=False`. I do not know
   which version is in your container.
-- Colour and layout choices are untested by eye. Everything is in
-  `config.py`.
+- Colour and layout choices are only partly checked against a screenshot.
+  Everything is in `config.py`.
+
+### Ribbon density
+
+At the shipped settings the 128->64 gap renders as a near-solid slab: 128
+ribbons, each spanning a large vertical extent, additively composited. It
+looks striking and it does bury the individual hidden neurons behind it. If
+you want the neuron columns to read through, the knob is the ribbon alpha in
+`canvas.js` -- `0.055 + 0.10 * v * v`. Halving both constants, or dividing
+them by `sqrt(gA)` so a wide fan-out does not accumulate more ink than a
+narrow one, are the two obvious options. Not changed unasked.
 
 ## Known limits
 
