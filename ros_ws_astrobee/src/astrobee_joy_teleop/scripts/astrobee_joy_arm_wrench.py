@@ -60,8 +60,13 @@ class AstrobeeJoyArmWrench:
     def __init__(self):
 
         # Max limits based on Astrobee's physical blower limits
-        self.max_force = 0.8    # Newtons
-        self.max_torque = 0.05  # Newton-meters
+        # self.max_force = 0.8    # Newtons
+        # self.max_torque = 0.05  # Newton-meters
+        self.max_force = rospy.get_param("/wrench_command/max_force", 1)#0.8)
+        self.max_torque = rospy.get_param("/wrench_command/max_torque", 1)#0.05)
+
+        print(self.max_force)
+        print(self.max_torque)
 
         # Perch arm control vars
         self._last_buttons = []

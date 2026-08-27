@@ -1,0 +1,17 @@
+# Joystick inputs
+wrench_command:
+  max_force: 0.8    # N
+  max_torque: 0.05  # Nm
+
+# Values reported by Gazebo sim
+# gz model -m honey -i | grep -E "name:|mass:" | grep -B1 "mass:"
+# gz model -m honey -i | grep -A24 -B10 'mass: 9.3955'
+# 9.3955 +(0.1623 + 0.1033 + 0.04 + 0.0116026 + 0.04 + 0.02285)
+robot_sim:
+  mass: 9.7756                       # kg, body + stowed arm
+  inertia: [0.1737, 0.1649, 0.1865]  # kg m^2, body axes, diagonal
+
+# Flight assist (inertial damping)
+flight_assist:
+  lin_vel_decay_time: 1.0  # s
+  ang_vel_decay_time: 1.0  # s

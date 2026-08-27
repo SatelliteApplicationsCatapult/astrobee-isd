@@ -11,6 +11,9 @@
         <arg name="honey_pose" default="11 -4 4.8 0 0 0 1"/>
     </include>
 
+    <!-- Common params for wrench converter and custom force control -->
+    <rosparam command="load" file="$(find astrobee_ros_demo)/config/common_params.yaml"/>
+
     <!-- Rviz dummy frame, to overcome orbit cam limitations and show
          perch arm upwards. Rotation arg order is yaw, pitch, roll. -->
     <node name="rviz_up" pkg="tf2_ros" type="static_transform_publisher"

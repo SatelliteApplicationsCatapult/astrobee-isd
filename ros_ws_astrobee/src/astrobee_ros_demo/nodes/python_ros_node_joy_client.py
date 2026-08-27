@@ -10,13 +10,6 @@ import ff_msgs.msg
 import ff_msgs.srv
 
 
-# Flight assist (inertial damping)
-MASS = 9.7756                                   # kg, body + stowed arm
-INERTIA = np.array([0.1737, 0.1649, 0.1865])    # kg m^2, body axes
-T_LIN = 2.0                                     # s, linear velocity decay
-T_ANG = 1.5                                     # s, angular velocity decay
-ASSIST_MAX_FORCE = 0.8                          # N
-ASSIST_MAX_TORQUE = 0.05                        # Nm
 
 
 class SimpleControlExample(object):
@@ -29,6 +22,14 @@ class SimpleControlExample(object):
         """
         Initialize controller class
         """
+
+        # Initialize parameters from file
+        self.max_force = rospy.get_param("/wrench_command/max_force", 0.8)
+        self.max_torque = rospy.get_param("/wrench_command/max_torque", 0.05)
+        self.mass = rospy.get_param("/robot_sim/mass", 9.7756)
+        self.inertia = np.array(rospy.get_param("/robot_sim/inertia", [0.1737, 0.1649, 0.1865]))
+        self.lin_vel_decay_time = rospy.get_param("/flight_assist/lin_vel_decay_time", 1.0)
+        self.ang_vel_decay_time = rospy.get_param("/flight_assist/ang_vel_decay_time", 1.0)
 
         # Initialize basic parameters
         self.dt = 1
@@ -313,11 +314,11 @@ class SimpleControlExample(object):
         v_world = self.state[3:6, 0]
         w_body = self.state[10:13, 0]
 
-        force = self.world_to_body(-(MASS / T_LIN) * v_world)
-        torque = -(INERTIA / T_ANG) * w_body
+        force = self.world_to_body(-(self.mass / self.lin_vel_decay_time) * v_world)
+        torque = - (self.inertia / self.ang_vel_decay_time) * w_body
 
-        return np.concatenate((self.clamp(force, ASSIST_MAX_FORCE),
-                               self.clamp(torque, ASSIST_MAX_TORQUE)))
+        return np.concatenate((self.clamp(force, self.max_force),
+                               self.clamp(torque, self.max_torque)))
 
     def create_flight_mode_message(self):
         """
