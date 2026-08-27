@@ -82,7 +82,7 @@ class SimpleControlExample(object):
 
     def twist_sub_cb(self, msg=geometry_msgs.msg.TwistStamped()):
         """
-        Twist callback to update the agent's lineear and angular velocities.
+        Twist callback to update the agent's linear and angular velocities.
 
         :param msg: estimated velocities
         :type msg: geometry_msgs.msg.TwistStamped
@@ -101,13 +101,19 @@ class SimpleControlExample(object):
         return
 
     def joy_wrench_sub_cb(self, msg=geometry_msgs.msg.WrenchStamped()):
+        """
+        Joystick callback to update the force/torque control messages.
+
+        :param msg: wrench command from joystick
+        :type msg: geometry_msgs.msg.WrenchStamped
+        """
         self.joy_wrench_ts = msg.header.stamp.secs + 1e-9 * msg.header.stamp.nsecs
-        self.joy_wrench = np.array([[msg.wrench.force.x,
-                                     msg.wrench.force.y,
-                                     msg.wrench.force.z,
-                                     msg.wrench.torque.x,
-                                     msg.wrench.torque.y,
-                                     msg.wrench.torque.z]]).T
+        self.joy_wrench = np.array([msg.wrench.force.x,
+                                    msg.wrench.force.y,
+                                    msg.wrench.force.z,
+                                    msg.wrench.torque.x,
+                                    msg.wrench.torque.y,
+                                    msg.wrench.torque.z])
         return
 
     def start_srv_callback(self, req=std_srvs.srv.SetBoolRequest()):
