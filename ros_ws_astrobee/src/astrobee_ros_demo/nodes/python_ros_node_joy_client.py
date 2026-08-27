@@ -10,6 +10,15 @@ import ff_msgs.msg
 import ff_msgs.srv
 
 
+# Flight assist (inertial damping)
+MASS = 9.7756                                   # kg, body + stowed arm
+INERTIA = np.array([0.1737, 0.1649, 0.1865])    # kg m^2, body axes
+T_LIN = 2.0                                     # s, linear velocity decay
+T_ANG = 1.5                                     # s, angular velocity decay
+ASSIST_MAX_FORCE = 0.8                          # N
+ASSIST_MAX_TORQUE = 0.05                        # Nm
+
+
 class SimpleControlExample(object):
     """
     Class implementing a simple controller example that
@@ -107,6 +116,7 @@ class SimpleControlExample(object):
         :param msg: wrench command from joystick
         :type msg: geometry_msgs.msg.WrenchStamped
         """
+
         self.joy_wrench_ts = msg.header.stamp.secs + 1e-9 * msg.header.stamp.nsecs
         self.joy_wrench = np.array([msg.wrench.force.x,
                                     msg.wrench.force.y,
@@ -252,6 +262,63 @@ class SimpleControlExample(object):
 
         return u
 
+    @staticmethod
+    def clamp(v, limit):
+        """
+        Scale a vector down to a maximum magnitude, preserving direction.
+
+        :param v: vector to clamp
+        :type v: numpy.ndarray, shape (3,)
+        :param limit: maximum allowed magnitude
+        :type limit: float
+        :return: clamped vector
+        :rtype: numpy.ndarray, shape (3,)
+        """
+
+        n = np.linalg.norm(v)
+        if n > limit and n > 0.0:
+            return v * (limit / n)
+        return v
+
+    def world_to_body(self, v):
+        """
+        Rotate a world-frame vector into the body frame using the current
+        attitude estimate.
+
+        :param v: world-frame vector
+        :type v: numpy.ndarray, shape (3,)
+        :return: body-frame vector
+        :rtype: numpy.ndarray, shape (3,)
+        """
+
+        # state[6:10] is the body-to-world quaternion, (x, y, z, w).
+        # Conjugating it gives world-to-body.
+        q = self.state[6:10, 0]
+        u = -q[0:3]
+        w = q[3]
+
+        t = 2.0 * np.cross(u, v)
+        return v + w * t + np.cross(u, t)
+
+    def damping_wrench(self):
+        """
+        Flight assist. Returns a body-frame wrench opposing the current
+        velocity, clamped per-vector so the direction of the damping is
+        preserved under saturation.
+
+        :return: damping wrench, force then torque
+        :rtype: numpy.ndarray, shape (6,)
+        """
+
+        v_world = self.state[3:6, 0]
+        w_body = self.state[10:13, 0]
+
+        force = self.world_to_body(-(MASS / T_LIN) * v_world)
+        torque = -(INERTIA / T_ANG) * w_body
+
+        return np.concatenate((self.clamp(force, ASSIST_MAX_FORCE),
+                               self.clamp(torque, ASSIST_MAX_TORQUE)))
+
     def create_flight_mode_message(self):
         """
         Helper function to create the flight mode message.
@@ -317,7 +384,7 @@ class SimpleControlExample(object):
             tin = rospy.get_time()
 
             # self.u_traj = np.zeros((6, ))  # TODO(@User): use your controller here
-            self.u_traj = self.joy_wrench
+            self.u_traj = self.joy_wrench + self.damping_wrench()
 
             tout = rospy.get_time() - tin
             rospy.loginfo("Time for control: " + str(tout))
