@@ -263,24 +263,6 @@ class SimpleControlExample(object):
 
         return u
 
-    @staticmethod
-    def clamp(v, limit):
-        """
-        Scale a vector down to a maximum magnitude, preserving direction.
-
-        :param v: vector to clamp
-        :type v: numpy.ndarray, shape (3,)
-        :param limit: maximum allowed magnitude
-        :type limit: float
-        :return: clamped vector
-        :rtype: numpy.ndarray, shape (3,)
-        """
-
-        n = np.linalg.norm(v)
-        if n > limit and n > 0.0:
-            return v * (limit / n)
-        return v
-
     def world_to_body(self, v):
         """
         Rotate a world-frame vector into the body frame using the current
@@ -304,8 +286,7 @@ class SimpleControlExample(object):
     def damping_wrench(self):
         """
         Flight assist. Returns a body-frame wrench opposing the current
-        velocity, clamped per-vector so the direction of the damping is
-        preserved under saturation.
+        velocity, clamped per axis to match the joystick converter's limits.
 
         :return: damping wrench, force then torque
         :rtype: numpy.ndarray, shape (6,)
@@ -317,8 +298,8 @@ class SimpleControlExample(object):
         force = self.world_to_body(-(self.mass / self.lin_vel_decay_time) * v_world)
         torque = - (self.inertia / self.ang_vel_decay_time) * w_body
 
-        return np.concatenate((self.clamp(force, self.max_force),
-                               self.clamp(torque, self.max_torque)))
+        return np.concatenate((np.clip(force, -self.max_force, self.max_force),
+                               np.clip(torque, -self.max_torque, self.max_torque)))
 
     def create_flight_mode_message(self):
         """
