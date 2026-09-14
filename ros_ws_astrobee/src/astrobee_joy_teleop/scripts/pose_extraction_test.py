@@ -20,7 +20,7 @@ from copy import deepcopy
 from astrobee_joy_teleop import pointcloud_utilities as pu
 
 
-class PoseExtractor(object):
+class PoseExtractor:
     def __init__(self):
 
         # Parameters

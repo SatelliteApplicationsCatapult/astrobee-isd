@@ -5,7 +5,7 @@ from ff_msgs.msg import CommandStamped, CommandArg, CommandConstants
 from tf.transformations import quaternion_from_euler
 
 
-class AstrobeeWrenchToTeleop(object):
+class AstrobeeWrenchToTeleop:
     def __init__(self):
 
         # Namespace (must match how you started the robot/sim, e.g. "honey")
