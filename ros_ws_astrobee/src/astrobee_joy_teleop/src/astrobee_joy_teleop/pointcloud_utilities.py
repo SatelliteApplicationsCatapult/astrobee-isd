@@ -30,7 +30,7 @@ def array_to_pointcloud_msg(header: Header, xyz: PointCloud2):
     return point_cloud2.create_cloud_xyz32(header, xyz.tolist())
 
 
-def array_to_vector3_msg(header: Header, arr: np.array):
+def array_to_vector3_msg(header: Header, arr: np.ndarray):
 
     v_msg = Vector3Stamped()
 
@@ -63,7 +63,7 @@ def pose_msg_to_array(pose: Pose):
     return T
 
 
-def array_to_pose_msg(t: np.array):
+def array_to_pose_msg(t: np.ndarray):
 
     pos = transformations.translation_from_matrix(t)
     q = transformations.quaternion_from_matrix(t)
@@ -75,7 +75,29 @@ def array_to_pose_msg(t: np.array):
     return pose
 
 
-def transform_twist_msg(twist_old: Twist, R: np.array):
+def twist_msg_to_array(twist: Twist):
+
+    v_lin = np.array([twist.linear.x, twist.linear.y, twist.linear.z])
+    v_ang = np.array([twist.angular.x, twist.angular.y, twist.angular.z])
+
+    T = np.concatenate((v_lin, v_ang))
+
+    return T
+
+
+def array_to_twist_msg(t: np.ndarray):
+
+    v_lin = t[0:3]
+    v_ang = t[3:6]
+
+    twist = Twist()
+    twist.linear = Vector3(*v_lin)
+    twist.angular = Vector3(*v_ang)
+
+    return twist
+
+
+def transform_twist_msg(twist_old: Twist, R: np.ndarray):
 
     v_lin_old = np.array([twist_old.linear.x, twist_old.linear.y, twist_old.linear.z])
     v_ang_old = np.array([twist_old.angular.x, twist_old.angular.y, twist_old.angular.z])
@@ -94,7 +116,7 @@ def transform_twist_msg(twist_old: Twist, R: np.array):
 
 
 
-def trim_to_box(points: np.array, box_min: list, box_max: list):
+def trim_to_box(points: np.ndarray, box_min: list, box_max: list):
     """
     Remove points outside the axis-aligned box defined by box_min and box_max.
     """
@@ -104,7 +126,7 @@ def trim_to_box(points: np.array, box_min: list, box_max: list):
     return trimmed_points
 
 
-# def remove_outliers(points: np.array):
+# def remove_outliers(points: np.ndarray):
 #     """
 #     Remove large outliers from the point set (e.g., using simple statistical thresholds).
 #     """
@@ -117,7 +139,7 @@ def trim_to_box(points: np.array, box_min: list, box_max: list):
 # Line fitting and pose/twist computation
 # -------------------------------------------------------------------------
 
-# def fit_line(points: np.array):
+# def fit_line(points: np.ndarray):
 #     """
 #     Fit a 3D line (axis) to the point cloud and estimate cylinder length
 #     by capping the ends along the axis.
