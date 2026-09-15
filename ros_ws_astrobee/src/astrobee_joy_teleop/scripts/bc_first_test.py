@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import os
 #import rospy
 import rosbag
 
@@ -20,25 +21,33 @@ log = logging.getLogger(__name__)
 
 
 def get_config(argv=None):
-    p = argparse.ArgumentParser(description="Prepare rosbag data for Behavioural Cloning.")
-    p.add_argument('--bag-path', default='input.bag')
-    p.add_argument('--rate-hz', type=float, default=30.0)
-    p.add_argument('--robot-name', default='honey')
-    p.add_argument('--pc-frame', default='honey/perch_cam')
-    p.add_argument('--model-states', default='/gazebo/model_states')              # gazebo_msgs/ModelStates
-    p.add_argument('--pointcloud-topic', default='/honey/hw/depth_perch/points')  # sensor_msgs/PointCloud2
-    p.add_argument('--gamepad-raw-topic', default='/joy')                         # sensor_msgs/Joy
-    p.add_argument('--gamepad-wrench-topic', default='/joy_wrench')               # geometry_msgs/WrenchStamped
-    p.add_argument('--arm-state-topic', default='/honey/beh/arm/arm_state')       # ff_msgs/ArmStateStamped, contains:
-                                                                                  #   - ff_msgs/ArmJointState
-                                                                                  #   - ff_msgs/ArmGripperState
+    p = argparse.ArgumentParser(description="Prepare rosbag data for Behavioural Cloning")
+    p.add_argument('--bag-paths', nargs='+', default=['input.bag'],
+                   help='One or more rosbags')
+    p.add_argument('--rate-hz', type=float, default=30.0,
+                   help='Common rate that all inputs will be interpolated against')
+    p.add_argument('--robot-name', default='honey',
+                   help='Robot name/namespace')
+    p.add_argument('--pc-frame', default='honey/perch_cam',
+                   help='Pointcloud data reference frame')
+    p.add_argument('--model-states', default='/gazebo/model_states',
+                   help="gazebo model states for groundtruth data - gazebo_msgs/ModelStates")
+    p.add_argument('--pointcloud-topic', default='/honey/hw/depth_perch/points',
+                   help="Pointcloud data topic - sensor_msgs/PointCloud2")
+    p.add_argument('--gamepad-raw-topic', default='/joy',
+                   help="Joystick raw data topic - sensor_msgs/Joy")
+    p.add_argument('--gamepad-wrench-topic', default='/joy_wrench',
+                   help="Joystick data converted to wrench values - geometry_msgs/WrenchStamped")
+    p.add_argument('--arm-state-topic', default='/honey/beh/arm/arm_state',
+                   help="Topic containing both arm and gripper states - ff_msgs/ArmStateStamped, contains ff_msgs/ArmJointState and ff_msgs/ArmGripperState")
     return p.parse_args(argv)
 
 
 class BcData:
-    """Uniformly-sampled arrays on one clock."""
+    """Uniformly-sampled arrays on one clock. One instance per run/bag."""
 
     def __init__(self):
+        self.bag_path = ""
         self.tool_name = ""
         self.data_rate = 0
         self.t = None                  # (N,)      s
@@ -57,7 +66,7 @@ class BcFirstTest:
     def __init__(self, args):
 
         # # Parameters
-        # self.bag_path = rospy.get_param('~bag_path', 'input.bag')
+        # self.bag_path = rospy.get_param('~bag_paths', 'input.bag')
         # self.rate_hz = rospy.get_param('~rate_hz', 30.0)
         # self.robot_name = rospy.get_param('~robot_name', 'honey')
         # self.pc_frame = rospy.get_param('~pc_frame', 'honey/perch_cam')
@@ -70,7 +79,7 @@ class BcFirstTest:
         #                                                                                               #   - ff_msgs/ArmGripperState
         # Remove ROS node and use argparse instead
         # Parameters
-        self.bag_path = args.bag_path
+        self.bag_paths = args.bag_paths
         self.rate_hz = args.rate_hz
         self.robot_name = args.robot_name
         self.pc_frame = args.pc_frame
@@ -99,16 +108,29 @@ class BcFirstTest:
             Pose(position=Point(0.017, -0.051, -0.133),
                  orientation=Quaternion(0.0, np.sqrt(2.0) / 2.0, 0.0, np.sqrt(2.0) / 2.0)))
 
+        # Array of BcData objects, one per bag file
+        self.bc_data = []
 
-        self.load_data_from_file()
+        self.load_data_from_files()
+        self.check_runs_consistent()
         self.debug_print_bc_data()
 
         self.preprocess_data_for_bc()
 
 
-    def load_data_from_file(self):
+    def load_data_from_files(self):
+        """Load every bag into its own BcData."""
+
+        for bag_path in self.bag_paths:
+            log.info("Loading %s", bag_path)
+            self.bc_data.append(self.load_run(bag_path))
+
+        log.info("Loaded %d run(s), %d frames total", len(self.bc_data), sum(len(d.t) for d in self.bc_data))
+
+
+    def load_run(self, bag_path):
         """
-        Read the bag and return a BcData of uniformly-sampled arrays.
+        Read bag and return a BcData of uniformly-sampled arrays.
         """
 
         tool_name = ""
@@ -118,7 +140,7 @@ class BcFirstTest:
         wrench_t, wrench_cmd = [], []
         arm_t, arm_joint, arm_grip = [], [], []
 
-        bag = rosbag.Bag(self.bag_path, 'r')
+        bag = rosbag.Bag(bag_path, 'r')
 
         # Print basic data from bag
         log.info("Bag info:")
@@ -128,7 +150,7 @@ class BcFirstTest:
         w_type = max((len(m.msg_type) for m in topics.values()), default=0)
         for topic, meta in topics.items():
             freq = meta.frequency if meta.frequency is not None else float("nan")
-            log.info(f"Topic: {topic:<{w_name}}, type: {meta.msg_type:<{w_type}}, "
+            log.info(f"  Topic: {topic:<{w_name}}, type: {meta.msg_type:<{w_type}}, "
                      f"count: {meta.message_count:>6}, rate: {freq:6.1f}")
 
         try:
@@ -164,7 +186,7 @@ class BcFirstTest:
                             # Tool is spawned after the robot; frames before the spawn are dropped
                             continue
                         if len(matches) > 1:
-                            log.warn("More than one tool found, picking first")
+                            log.warning("More than one tool found in %s, picking first", os.path.basename(d.bag_path))
                         tool_name = matches[0]
                         log.info("Tool found: %s", tool_name)
 
@@ -232,39 +254,69 @@ class BcFirstTest:
             bag.close()
 
         if not tool_name:
-            raise RuntimeError("No tool from %s appeared in %s" % (self.tools_list, self.model_states_topic))
+            raise RuntimeError("No tool from %s appeared on %s in %s" % (self.tools_list, self.model_states_topic, os.path.basename(bag_path)))
 
         for name, stamps in (('pc', pc_t), ('tool', tool_t), ('joy', joy_t), ('wrench', wrench_t), ('arm', arm_t)):
-                    if not stamps:
-                        raise RuntimeError("No messages on the %s stream in %s" % (name, self.bag_path))
+            if not stamps:
+                raise RuntimeError("No messages on the %s stream in %s" % (name, os.path.basename(bag_path)))
 
 
         # Use pointcloud data to get pose estimates
         # TODO:
         # tool_t, tool_pose_in_pc, tool_twist_in_pc = self.run_pose_estimation(pc_t, pc_points)
 
-        raw = dict(tool_name = tool_name,
+        raw = dict(bag_path = bag_path,
+                   tool_name = tool_name,
                    data_rate = self.rate_hz,
                    tool = (tool_t, tool_pose_in_pc, tool_twist_in_pc),
                    joy = (joy_t, joy_axes, joy_buttons),
                    wrench = (wrench_t, wrench_cmd),
                    arm = (arm_t, arm_joint, arm_grip))
 
-        self.bc_data = self.resample(raw, self.rate_hz)
+        d = self.resample(raw, self.rate_hz)
 
-        log.info("Loading done: %d frames at %.1f Hz", len(self.bc_data.t), self.rate_hz)
+        log.info("Loading done: %d frames at %.1f Hz", len(d.t), self.rate_hz)
+
+        return d
+
+
+    def check_runs_consistent(self):
+        """Fail on anything that would silently corrupt a pooled dataset, warn on anything that only probably would."""
+
+        if not self.bc_data:
+            raise RuntimeError("No runs loaded")
+
+        layouts = {}
+        for d in self.bc_data:
+            layouts.setdefault((d.joy_axes.shape[1], d.joy_buttons.shape[1]), []).append(d.bag_path)
+        if len(layouts) > 1:
+            groups = "; ".join("%d axes / %d buttons: %s" % (k[0], k[1], ", ".join(v)) for k, v in sorted(layouts.items()))
+            raise RuntimeError("Gamepad layout is not consistent across runs. %s" % groups)
+
+        tools = sorted({d.tool_name for d in self.bc_data})
+
+        if len(tools) > 1:
+            log.warning("Runs span more than one tool (%s). The observation carries no tool identity, so identical observations can carry different correct actions.", ", ".join(tools))
+
+        lengths = np.array([len(d.t) for d in self.bc_data], dtype=float)
+        if lengths.max() > 3.0 * lengths.min():
+            log.warning("Run lengths vary by more than 3x (%d to %d frames). Under a flat per-sample loss the long runs dominate.", int(lengths.min()), int(lengths.max()))
 
 
     def debug_print_bc_data(self):
 
         log.info("BC data info:")
 
-        d = self.bc_data
-        log.info(f"Tool: {d.tool_name}, frames: {len(d.t)}, rate: {d.data_rate:.1f} Hz, duration: {d.t[-1] - d.t[0]:.2f} s")
+        for d in self.bc_data:
+            log.info(f"Run: {os.path.basename(d.bag_path)}, tool: {d.tool_name}, frames: {len(d.t)}, rate: {d.data_rate:.1f} Hz, duration: {d.t[-1] - d.t[0]:.2f} s")
 
-        for name in ('tool_pos', 'tool_quat', 'tool_lin_vel', 'tool_ang_vel', 'wrench_cmd', 'joy_axes', 'joy_buttons', 'arm_joint_state', 'arm_gripper_state'):
-            a = np.asarray(getattr(d, name)).astype(float)
-            log.info(f"{name:<18} shape: {str(a.shape):<12} min: {a.min():9.4f}, max: {a.max():9.4f}, nan: {int(np.isnan(a).sum())}")
+            for name in ('tool_pos', 'tool_quat', 'tool_lin_vel', 'tool_ang_vel', 'wrench_cmd', 'joy_axes', 'joy_buttons', 'arm_joint_state', 'arm_gripper_state'):
+                a = np.asarray(getattr(d, name)).astype(float)
+                log.info(f"  {name:<18} shape: {str(a.shape):<12} min: {a.min():9.4f}, max: {a.max():9.4f}, nan: {int(np.isnan(a).sum())}")
+
+        total_frames = sum(len(d.t) for d in self.bc_data)
+        total_secs = sum(d.t[-1] - d.t[0] for d in self.bc_data)
+        log.info(f"Total: {len(self.bc_data)} run(s), {total_frames} frame(s), {total_secs:.1f} s")
 
 
     def run_pose_estimation(self, pc_t, pc_points):
@@ -341,10 +393,11 @@ class BcFirstTest:
         t0 = max(tool_t[0], wrench_t[0], joy_t[0], arm_t[0])
         t1 = min(tool_t[-1], wrench_t[-1], joy_t[-1], arm_t[-1])
         if not t1 > t0:
-            raise RuntimeError("Topic time windows do not overlap")
+            raise RuntimeError("Topic time windows do not overlap in %s" % raw['bag_path'])
 
 
         d = BcData()
+        d.bag_path = raw['bag_path']
         d.data_rate = raw['data_rate']
         d.tool_name = raw['tool_name']
 
@@ -371,6 +424,9 @@ class BcFirstTest:
     def preprocess_data_for_bc(self):
         """
         Get data ready for the format required for Behavioural Cloning, which uses the Imitation library.
+
+        self.bc_data is a list of BcData, one per run. Standardisation statistics must be fitted once
+        over the pooled training split and reused unchanged at inference - not per run.
         """
 
         pass
@@ -379,8 +435,6 @@ class BcFirstTest:
 def main():
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
     args = get_config()
-    # Change default args here if needed:
-    #args = parse_args(['--bag-path', 'example.bag', '--rate-hz', '5'])
     bc_first_test = BcFirstTest(args)
 
 
