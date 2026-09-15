@@ -161,7 +161,7 @@ catkin_install_python(PROGRAMS
   scripts/astrobee_wrench_to_teleop.py
   scripts/astrobee_recorder.py
   scripts/pose_extraction_test.py
-  scripts/bc_first_test.py
+  # scripts/bc_first_test.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

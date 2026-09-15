@@ -1,6 +1,9 @@
 #!/usr/bin/env python
-import rospy
+#import rospy
 import rosbag
+
+import argparse
+import logging
 
 import numpy as np
 from tf.transformations import translation_from_matrix, quaternion_from_matrix, quaternion_slerp
@@ -13,12 +16,31 @@ from astrobee_joy_teleop import pointcloud_utilities as pu
 # from imitation.algorithms import bc
 # from imitation.data.types import TransitionsMinimal
 
+log = logging.getLogger(__name__)
+
+
+def get_config(argv=None):
+    p = argparse.ArgumentParser(description="Prepare rosbag data for Behavioural Cloning.")
+    p.add_argument('--bag-path', default='input.bag')
+    p.add_argument('--rate-hz', type=float, default=30.0)
+    p.add_argument('--robot-name', default='honey')
+    p.add_argument('--pc-frame', default='honey/perch_cam')
+    p.add_argument('--model-states', default='/gazebo/model_states')              # gazebo_msgs/ModelStates
+    p.add_argument('--pointcloud-topic', default='/honey/hw/depth_perch/points')  # sensor_msgs/PointCloud2
+    p.add_argument('--gamepad-raw-topic', default='/joy')                         # sensor_msgs/Joy
+    p.add_argument('--gamepad-wrench-topic', default='/joy_wrench')               # geometry_msgs/WrenchStamped
+    p.add_argument('--arm-state-topic', default='/honey/beh/arm/arm_state')       # ff_msgs/ArmStateStamped, contains:
+                                                                                  #   - ff_msgs/ArmJointState
+                                                                                  #   - ff_msgs/ArmGripperState
+    return p.parse_args(argv)
+
 
 class BcData:
     """Uniformly-sampled arrays on one clock."""
 
     def __init__(self):
         self.tool_name = ""
+        self.data_rate = 0
         self.t = None                  # (N,)      s
         self.tool_pos = None           # (N, 3)    m, in perch_cam
         self.tool_quat = None          # (N, 4)    x y z w, in perch_cam
@@ -32,20 +54,31 @@ class BcData:
 
 
 class BcFirstTest:
-    def __init__(self):
+    def __init__(self, args):
 
+        # # Parameters
+        # self.bag_path = rospy.get_param('~bag_path', 'input.bag')
+        # self.rate_hz = rospy.get_param('~rate_hz', 30.0)
+        # self.robot_name = rospy.get_param('~robot_name', 'honey')
+        # self.pc_frame = rospy.get_param('~pc_frame', 'honey/perch_cam')
+        # self.model_states_topic = rospy.get_param('~model_states', "/gazebo/model_states")            # gazebo_msgs/ModelStates
+        # self.pointcloud_topic = rospy.get_param('~pointcloud_topic', '/honey/hw/depth_perch/points')  # sensor_msgs/PointCloud2
+        # self.gamepad_raw_topic = rospy.get_param('~gamepad_raw_topic', '/joy')                        # sensor_msgs/Joy
+        # self.gamepad_wrench_topic = rospy.get_param('~gamepad_topic', '/joy_wrench')                  # geometry_msgs/WrenchStamped
+        # self.arm_state_topic = rospy.get_param('~arm_state_topic', '/honey/beh/arm/arm_state')        # ff_msgs/ArmStateStamped, contains:
+        #                                                                                               #   - ff_msgs/ArmJointState
+        #                                                                                               #   - ff_msgs/ArmGripperState
+        # Remove ROS node and use argparse instead
         # Parameters
-        self.bag_path = rospy.get_param('~bag_path', 'input.bag')
-        self.rate_hz = rospy.get_param('~rate_hz', 30.0)
-        self.robot_name = rospy.get_param('~robot_name', 'honey')
-        self.pc_frame = rospy.get_param('~pc_frame', 'honey/perch_cam')
-        self.model_states_topic = rospy.get_param('~model_states', "/gazebo/model_states")            # gazebo_msgs/ModelStates
-        self.pointcloud_topic = rospy.get_param('~pointcloud_topic', '/honey/hw/depth_perch/points')  # sensor_msgs/PointCloud2
-        self.gamepad_raw_topic = rospy.get_param('~gamepad_raw_topic', '/joy')                        # sensor_msgs/Joy
-        self.gamepad_wrench_topic = rospy.get_param('~gamepad_topic', '/joy_wrench')                  # geometry_msgs/WrenchStamped
-        self.arm_state_topic = rospy.get_param('~arm_state_topic', '/honey/beh/arm/arm_state')        # ff_msgs/ArmStateStamped, contains:
-                                                                                                      #   - ff_msgs/ArmJointState
-                                                                                                      #   - ff_msgs/ArmGripperState
+        self.bag_path = args.bag_path
+        self.rate_hz = args.rate_hz
+        self.robot_name = args.robot_name
+        self.pc_frame = args.pc_frame
+        self.model_states_topic = args.model_states
+        self.pointcloud_topic = args.pointcloud_topic
+        self.gamepad_raw_topic = args.gamepad_raw_topic
+        self.gamepad_wrench_topic = args.gamepad_wrench_topic
+        self.arm_state_topic = args.arm_state_topic
 
         self.topics_of_interest = [self.model_states_topic,
                                    self.pointcloud_topic,
@@ -68,6 +101,7 @@ class BcFirstTest:
 
 
         self.load_data_from_file()
+        self.debug_print_bc_data()
 
         self.preprocess_data_for_bc()
 
@@ -87,15 +121,15 @@ class BcFirstTest:
         bag = rosbag.Bag(self.bag_path, 'r')
 
         # Print basic data from bag
-        print("Bag info:")
+        log.info("Bag info:")
         info = bag.get_type_and_topic_info()
         topics = info.topics
         w_name = max((len(t) for t in topics), default=0)
         w_type = max((len(m.msg_type) for m in topics.values()), default=0)
         for topic, meta in topics.items():
             freq = meta.frequency if meta.frequency is not None else float("nan")
-            rospy.loginfo(f"Topic: {topic:<{w_name}}, type: {meta.msg_type:<{w_type}}, "
-                          f"count: {meta.message_count:>6}, freq: {freq:6.1f}")
+            log.info(f"Topic: {topic:<{w_name}}, type: {meta.msg_type:<{w_type}}, "
+                     f"count: {meta.message_count:>6}, rate: {freq:6.1f}")
 
         try:
             for topic, msg, t in bag.read_messages(topics=self.topics_of_interest):
@@ -130,9 +164,9 @@ class BcFirstTest:
                             # Tool is spawned after the robot; frames before the spawn are dropped
                             continue
                         if len(matches) > 1:
-                            rospy.logwarn("More than one tool found, picking first")
+                            log.warn("More than one tool found, picking first")
                         tool_name = matches[0]
-                        rospy.loginfo("Tool found: %s", tool_name)
+                        log.info("Tool found: %s", tool_name)
 
                     robot_idx = model_names.index(self.robot_name)
                     tool_idx = model_names.index(tool_name)
@@ -209,17 +243,28 @@ class BcFirstTest:
         # TODO:
         # tool_t, tool_pose_in_pc, tool_twist_in_pc = self.run_pose_estimation(pc_t, pc_points)
 
-        raw = dict(tool_name=tool_name,
-                   tool=(tool_t, tool_pose_in_pc, tool_twist_in_pc),
-                   joy=(joy_t, joy_axes, joy_buttons),
-                   wrench=(wrench_t, wrench_cmd),
-                   arm=(arm_t, arm_joint, arm_grip))
+        raw = dict(tool_name = tool_name,
+                   data_rate = self.rate_hz,
+                   tool = (tool_t, tool_pose_in_pc, tool_twist_in_pc),
+                   joy = (joy_t, joy_axes, joy_buttons),
+                   wrench = (wrench_t, wrench_cmd),
+                   arm = (arm_t, arm_joint, arm_grip))
 
         self.bc_data = self.resample(raw, self.rate_hz)
 
-        rospy.loginfo("Loading done: %d frames at %.1f Hz", len(self.bc_data.t), self.rate_hz)
+        log.info("Loading done: %d frames at %.1f Hz", len(self.bc_data.t), self.rate_hz)
 
-        return self.bc_data
+
+    def debug_print_bc_data(self):
+
+        log.info("BC data info:")
+
+        d = self.bc_data
+        log.info(f"Tool: {d.tool_name}, frames: {len(d.t)}, rate: {d.data_rate:.1f} Hz, duration: {d.t[-1] - d.t[0]:.2f} s")
+
+        for name in ('tool_pos', 'tool_quat', 'tool_lin_vel', 'tool_ang_vel', 'wrench_cmd', 'joy_axes', 'joy_buttons', 'arm_joint_state', 'arm_gripper_state'):
+            a = np.asarray(getattr(d, name)).astype(float)
+            log.info(f"{name:<18} shape: {str(a.shape):<12} min: {a.min():9.4f}, max: {a.max():9.4f}, nan: {int(np.isnan(a).sum())}")
 
 
     def run_pose_estimation(self, pc_t, pc_points):
@@ -300,6 +345,7 @@ class BcFirstTest:
 
 
         d = BcData()
+        d.data_rate = raw['data_rate']
         d.tool_name = raw['tool_name']
 
         d.t = np.arange(t0, t1, 1.0 / rate_hz)
@@ -330,10 +376,19 @@ class BcFirstTest:
         pass
 
 
+def main():
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    args = get_config()
+    # Change default args here if needed:
+    #args = parse_args(['--bag-path', 'example.bag', '--rate-hz', '5'])
+    bc_first_test = BcFirstTest(args)
+
+
 if __name__ == '__main__':
-    try:
-        rospy.init_node('bc_first_test')
-        node = BcFirstTest()
-        #rospy.spin()
-    except rospy.ROSInterruptException:
-        pass
+    # try:
+    #     rospy.init_node('bc_first_test')
+    #     node = BcFirstTest()
+    #     #rospy.spin()
+    # except rospy.ROSInterruptException:
+    #     pass
+        main()
