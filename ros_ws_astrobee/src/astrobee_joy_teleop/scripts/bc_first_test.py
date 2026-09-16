@@ -5,6 +5,7 @@ import rosbag
 
 import argparse
 import logging
+import coloredlogs
 
 import numpy as np
 from tf.transformations import translation_from_matrix, quaternion_from_matrix, quaternion_slerp
@@ -17,7 +18,9 @@ from astrobee_joy_teleop import pointcloud_utilities as pu
 # from imitation.algorithms import bc
 # from imitation.data.types import TransitionsMinimal
 
-log = logging.getLogger(__name__)
+# Logger with coloured outputs
+logger = logging.getLogger(__name__)
+coloredlogs.install(level=logging.DEBUG, fmt="%(asctime)s %(levelname)s %(message)s")
 
 
 def get_config(argv=None):
@@ -122,10 +125,10 @@ class BcFirstTest:
         """Load every bag into its own BcData."""
 
         for bag_path in self.bag_paths:
-            log.info("Loading %s", bag_path)
+            logger.info("Loading %s", bag_path)
             self.bc_data.append(self.load_run(bag_path))
 
-        log.info("Loaded %d run(s), %d frames total", len(self.bc_data), sum(len(d.t) for d in self.bc_data))
+        logger.info("Loaded %d run(s), %d frames total", len(self.bc_data), sum(len(d.t) for d in self.bc_data))
 
 
     def load_run(self, bag_path):
@@ -143,15 +146,15 @@ class BcFirstTest:
         bag = rosbag.Bag(bag_path, 'r')
 
         # Print basic data from bag
-        log.info("Bag info:")
+        logger.info("Bag info:")
         info = bag.get_type_and_topic_info()
         topics = info.topics
         w_name = max((len(t) for t in topics), default=0)
         w_type = max((len(m.msg_type) for m in topics.values()), default=0)
         for topic, meta in topics.items():
             freq = meta.frequency if meta.frequency is not None else float("nan")
-            log.info(f"  Topic: {topic:<{w_name}}, type: {meta.msg_type:<{w_type}}, "
-                     f"count: {meta.message_count:>6}, rate: {freq:6.1f}")
+            logger.info(f"  Topic: {topic:<{w_name}}, type: {meta.msg_type:<{w_type}}, "
+                        f"count: {meta.message_count:>6}, rate: {freq:6.1f}")
 
         try:
             for topic, msg, t in bag.read_messages(topics=self.topics_of_interest):
@@ -186,9 +189,9 @@ class BcFirstTest:
                             # Tool is spawned after the robot; frames before the spawn are dropped
                             continue
                         if len(matches) > 1:
-                            log.warning("More than one tool found in %s, picking first", os.path.basename(d.bag_path))
+                            logger.warning("More than one tool found in %s, picking first", os.path.basename(d.bag_path))
                         tool_name = matches[0]
-                        log.info("Tool found: %s", tool_name)
+                        logger.info("Tool found: %s", tool_name)
 
                     robot_idx = model_names.index(self.robot_name)
                     tool_idx = model_names.index(tool_name)
@@ -275,7 +278,7 @@ class BcFirstTest:
 
         d = self.resample(raw, self.rate_hz)
 
-        log.info("Loading done: %d frames at %.1f Hz", len(d.t), self.rate_hz)
+        logger.info("Loading done: %d frames at %.1f Hz", len(d.t), self.rate_hz)
 
         return d
 
@@ -296,27 +299,27 @@ class BcFirstTest:
         tools = sorted({d.tool_name for d in self.bc_data})
 
         if len(tools) > 1:
-            log.warning("Runs span more than one tool (%s). The observation carries no tool identity, so identical observations can carry different correct actions.", ", ".join(tools))
+            logger.warning("Runs span more than one tool (%s). The observation carries no tool identity, so identical observations can carry different correct actions.", ", ".join(tools))
 
         lengths = np.array([len(d.t) for d in self.bc_data], dtype=float)
         if lengths.max() > 3.0 * lengths.min():
-            log.warning("Run lengths vary by more than 3x (%d to %d frames). Under a flat per-sample loss the long runs dominate.", int(lengths.min()), int(lengths.max()))
+            logger.warning("Run lengths vary by more than 3x (%d to %d frames). Under a flat per-sample loss the long runs dominate.", int(lengths.min()), int(lengths.max()))
 
 
     def debug_print_bc_data(self):
 
-        log.info("BC data info:")
+        logger.info("BC data info:")
 
         for d in self.bc_data:
-            log.info(f"Run: {os.path.basename(d.bag_path)}, tool: {d.tool_name}, frames: {len(d.t)}, rate: {d.data_rate:.1f} Hz, duration: {d.t[-1] - d.t[0]:.2f} s")
+            logger.info(f"Run: {os.path.basename(d.bag_path)}, tool: {d.tool_name}, frames: {len(d.t)}, rate: {d.data_rate:.1f} Hz, duration: {d.t[-1] - d.t[0]:.2f} s")
 
             for name in ('tool_pos', 'tool_quat', 'tool_lin_vel', 'tool_ang_vel', 'wrench_cmd', 'joy_axes', 'joy_buttons', 'arm_joint_state', 'arm_gripper_state'):
                 a = np.asarray(getattr(d, name)).astype(float)
-                log.info(f"  {name:<18} shape: {str(a.shape):<12} min: {a.min():9.4f}, max: {a.max():9.4f}, nan: {int(np.isnan(a).sum())}")
+                logger.info(f"  {name:<18} shape: {str(a.shape):<12} min: {a.min():9.4f}, max: {a.max():9.4f}, nan: {int(np.isnan(a).sum())}")
 
         total_frames = sum(len(d.t) for d in self.bc_data)
         total_secs = sum(d.t[-1] - d.t[0] for d in self.bc_data)
-        log.info(f"Total: {len(self.bc_data)} run(s), {total_frames} frame(s), {total_secs:.1f} s")
+        logger.info(f"Total: {len(self.bc_data)} run(s), {total_frames} frame(s), {total_secs:.1f} s")
 
 
     def run_pose_estimation(self, pc_t, pc_points):
@@ -424,9 +427,6 @@ class BcFirstTest:
     def preprocess_data_for_bc(self):
         """
         Get data ready for the format required for Behavioural Cloning, which uses the Imitation library.
-
-        self.bc_data is a list of BcData, one per run. Standardisation statistics must be fitted once
-        over the pooled training split and reused unchanged at inference - not per run.
         """
 
         pass
