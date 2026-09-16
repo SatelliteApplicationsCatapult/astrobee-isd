@@ -24,15 +24,19 @@ coloredlogs.install(level=logging.DEBUG, fmt="%(asctime)s %(levelname)s %(messag
 
 
 def get_config(argv=None):
-    p = argparse.ArgumentParser(description="Prepare rosbag data for Behavioural Cloning")
-    p.add_argument('--bag-paths', nargs='+', default=['input.bag'],
-                   help='One or more rosbags')
+    p = argparse.ArgumentParser(
+        description="Prepare rosbag data for Behavioural Cloning",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    # Required/positional
+    p.add_argument('bag_folder',
+                   help="Folder containing one or more rosbags (organised as sub-folders)")
+    # Optional
     p.add_argument('--rate-hz', type=float, default=30.0,
-                   help='Common rate that all inputs will be interpolated against')
+                   help="Common rate that all inputs will be interpolated against")
     p.add_argument('--robot-name', default='honey',
-                   help='Robot name/namespace')
+                   help="Robot name/namespace")
     p.add_argument('--pc-frame', default='honey/perch_cam',
-                   help='Pointcloud data reference frame')
+                   help="Pointcloud data reference frame")
     p.add_argument('--model-states', default='/gazebo/model_states',
                    help="gazebo model states for groundtruth data - gazebo_msgs/ModelStates")
     p.add_argument('--pointcloud-topic', default='/honey/hw/depth_perch/points',
@@ -69,7 +73,7 @@ class BcFirstTest:
     def __init__(self, args):
 
         # # Parameters
-        # self.bag_path = rospy.get_param('~bag_paths', 'input.bag')
+        # self.bag_folder = rospy.get_param('~bag_folder', 'rosbags')
         # self.rate_hz = rospy.get_param('~rate_hz', 30.0)
         # self.robot_name = rospy.get_param('~robot_name', 'honey')
         # self.pc_frame = rospy.get_param('~pc_frame', 'honey/perch_cam')
@@ -82,7 +86,7 @@ class BcFirstTest:
         #                                                                                               #   - ff_msgs/ArmGripperState
         # Remove ROS node and use argparse instead
         # Parameters
-        self.bag_paths = args.bag_paths
+        self.bag_folder = args.bag_folder
         self.rate_hz = args.rate_hz
         self.robot_name = args.robot_name
         self.pc_frame = args.pc_frame
@@ -121,11 +125,55 @@ class BcFirstTest:
         self.preprocess_data_for_bc()
 
 
-    def load_data_from_files(self):
-        """Load every bag into its own BcData."""
+    def find_runs(self, bag_folder):
+        """Every immediate subfolder holding a bag, filtered to the SUCCESS-marked ones."""
 
-        for bag_path in self.bag_paths:
-            logger.info("Loading %s", bag_path)
+        outcome_markers = ('SUCCESS', 'FAILURE')
+
+        if not os.path.isdir(bag_folder):
+            raise RuntimeError("Not a folder: %s" % bag_folder)
+
+        bag_paths = []
+        counts = {'SUCCESS': 0, 'FAILURE': 0, 'unmarked': 0}
+
+        for name in sorted(os.listdir(bag_folder)):
+            path = os.path.join(bag_folder, name)
+
+            if not os.path.isdir(path):
+                continue
+
+            bags = sorted(f for f in os.listdir(path) if f.endswith('.bag'))
+            if not bags:
+                continue
+            if len(bags) > 1:
+                raise RuntimeError("Expected one bag in %s, found %d: %s" % (name, len(bags), ", ".join(bags)))
+
+            markers = [m for m in outcome_markers if os.path.isfile(os.path.join(path, m))]
+            if len(markers) > 1:
+                raise RuntimeError("Run %s is marked both SUCCESS and FAILURE" % name)
+            if not markers:
+                counts['unmarked'] += 1
+                logger.warning("Run %s has no outcome marker, skipping", name)
+                continue
+
+            outcome = markers[0]
+            counts[outcome] += 1
+            if outcome == 'SUCCESS':
+                bag_paths.append(os.path.join(path, bags[0]))
+
+        logger.info("Found %d SUCCESS, %d FAILURE, %d unmarked run(s) in %s", counts['SUCCESS'], counts['FAILURE'], counts['unmarked'], bag_folder)
+
+        if not bag_paths:
+            raise RuntimeError("No SUCCESS runs found in %s" % bag_folder)
+
+        return bag_paths
+
+
+    def load_data_from_files(self):
+        """Load every SUCCESS run into its own BcData."""
+
+        for bag_path in self.find_runs(self.bag_folder):
+            logger.info("Loading %s", os.path.basename(bag_path))
             self.bc_data.append(self.load_run(bag_path))
 
         logger.info("Loaded %d run(s), %d frames total", len(self.bc_data), sum(len(d.t) for d in self.bc_data))
