@@ -14,11 +14,12 @@ from geometry_msgs.msg import Pose, Point, Quaternion, WrenchStamped
 
 from astrobee_joy_teleop import pointcloud_utilities as pu
 
-# import gymnasium as gym
-# from imitation.algorithms import bc
+import gymnasium as gym
+from imitation.algorithms import bc
 # from imitation.data.types import TransitionsMinimal
 
 # Logger with coloured outputs
+#logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 coloredlogs.install(level=logging.DEBUG, fmt="%(asctime)s %(levelname)s %(message)s")
 
@@ -118,11 +119,28 @@ class BcFirstTest:
         # Array of BcData objects, one per bag file
         self.bc_data = []
 
+
+    def run(self):
+        """Load and prep data."""
+
+        # Load and check data
         self.load_data_from_files()
         self.check_runs_consistent()
         self.debug_print_bc_data()
 
+        # BC prep and train test
         self.preprocess_data_for_bc()
+        self.bc_train_test()
+
+
+    def load_data_from_files(self):
+        """Load every SUCCESS run into its own BcData."""
+
+        for bag_path in self.find_runs(self.bag_folder):
+            logger.info("Loading %s", os.path.basename(bag_path))
+            self.bc_data.append(self.load_run(bag_path))
+
+        logger.info("Loaded %d run(s), %d frames total", len(self.bc_data), sum(len(d.t) for d in self.bc_data))
 
 
     def find_runs(self, bag_folder):
@@ -167,16 +185,6 @@ class BcFirstTest:
             raise RuntimeError("No SUCCESS runs found in %s" % bag_folder)
 
         return bag_paths
-
-
-    def load_data_from_files(self):
-        """Load every SUCCESS run into its own BcData."""
-
-        for bag_path in self.find_runs(self.bag_folder):
-            logger.info("Loading %s", os.path.basename(bag_path))
-            self.bc_data.append(self.load_run(bag_path))
-
-        logger.info("Loaded %d run(s), %d frames total", len(self.bc_data), sum(len(d.t) for d in self.bc_data))
 
 
     def load_run(self, bag_path):
@@ -237,7 +245,7 @@ class BcFirstTest:
                             # Tool is spawned after the robot; frames before the spawn are dropped
                             continue
                         if len(matches) > 1:
-                            logger.warning("More than one tool found in %s, picking first", os.path.basename(d.bag_path))
+                            logger.warning("More than one tool found in %s, picking first", os.path.basename(bag_path))
                         tool_name = matches[0]
                         logger.info("Tool found: %s", tool_name)
 
@@ -477,13 +485,47 @@ class BcFirstTest:
         Get data ready for the format required for Behavioural Cloning, which uses the Imitation library.
         """
 
-        pass
+        obs, acts = [], []
+
+        for d in self.bc_data:
+            gripper_cmd = np.maximum.accumulate(d.joy_buttons[:, 0].astype(np.int8))
+
+            obs.append(np.column_stack([d.tool_pos, d.tool_quat, d.tool_lin_vel, d.tool_ang_vel]))
+            acts.append(np.column_stack([d.wrench_cmd, gripper_cmd]))
+
+        self.obs = np.concatenate(obs).astype(np.float32)
+        self.acts = np.concatenate(acts).astype(np.float32)
+
+        self.obs_mean = self.obs.mean(axis=0)
+        self.obs_sigma = self.obs.std(axis=0)
+
+        # A channel that never moves standardises to 0/0. Leave it at its raw value rather than producing nan.
+        flat = self.obs_sigma < 1e-8
+        if flat.any():
+            logger.warning("Observation channel(s) %s are constant across the corpus and will not be standardised", np.flatnonzero(flat).tolist())
+        self.obs_sigma[flat] = 1.0
+
+        self.obs = (self.obs - self.obs_mean) / self.obs_sigma
+
+        logger.info("BC arrays: obs %s, acts %s, from %d run(s)", self.obs.shape, self.acts.shape, len(self.bc_data))
+        logger.info("Gripper closed on %.1f%% of frames", 100.0 * self.acts[:, 6].mean())
+
+
+    def bc_train_test(self):
+
+
+        num_obs = self.obs.shape[1]
+        num_acts = self.acts.shape[1]
+
+        logger.info("Number of observations: %d", num_obs)
+        logger.info("Number of actions: %d", num_acts)
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
     args = get_config()
     bc_first_test = BcFirstTest(args)
+    bc_first_test.run()
+    return bc_first_test
 
 
 if __name__ == '__main__':
@@ -493,4 +535,4 @@ if __name__ == '__main__':
     #     #rospy.spin()
     # except rospy.ROSInterruptException:
     #     pass
-        main()
+    bc_first_test = main()
