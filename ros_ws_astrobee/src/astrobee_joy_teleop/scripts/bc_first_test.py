@@ -2,6 +2,7 @@
 import os
 #import rospy
 import rosbag
+import rosparam
 
 import argparse
 import logging
@@ -16,7 +17,7 @@ from astrobee_joy_teleop import pointcloud_utilities as pu
 
 import gymnasium as gym
 from imitation.algorithms import bc
-# from imitation.data.types import TransitionsMinimal
+from imitation.data.types import Transitions, TransitionsMinimal
 
 # Logger with coloured outputs
 #logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
@@ -31,6 +32,8 @@ def get_config(argv=None):
     # Required/positional
     p.add_argument('bag_folder',
                    help="Folder containing one or more rosbags (organised as sub-folders)")
+    p.add_argument('common_params_yaml',
+                   help="YAML file containing common params")
     # Optional
     p.add_argument('--rate-hz', type=float, default=30.0,
                    help="Common rate that all inputs will be interpolated against")
@@ -88,6 +91,7 @@ class BcFirstTest:
         # Remove ROS node and use argparse instead
         # Parameters
         self.bag_folder = args.bag_folder
+        self.common_params_yaml = args.common_params_yaml
         self.rate_hz = args.rate_hz
         self.robot_name = args.robot_name
         self.pc_frame = args.pc_frame
@@ -105,6 +109,14 @@ class BcFirstTest:
                                    ]
 
         self.tools_list = ["ratchet_wrench", "wrench_10mm"]
+
+        # Load params
+        params = rosparam.load_file(args.common_params_yaml)[0][0]
+        self.max_force  = params['wrench_command']['max_force']
+        self.max_torque = params['wrench_command']['max_torque']
+
+        # Set action scaling param
+        self.act_scale = np.array([self.max_force] * 3 + [self.max_torque] * 3 + [1.0], dtype=np.float32)
 
         # Static transform from robot body to perch cam
         # rosrun tf tf_echo honey/perch_cam honey/body
@@ -493,8 +505,10 @@ class BcFirstTest:
             obs.append(np.column_stack([d.tool_pos, d.tool_quat, d.tool_lin_vel, d.tool_ang_vel]))
             acts.append(np.column_stack([d.wrench_cmd, gripper_cmd]))
 
+        # Observations
         self.obs = np.concatenate(obs).astype(np.float32)
-        self.acts = np.concatenate(acts).astype(np.float32)
+        # Actions, scaled
+        self.acts = np.concatenate(acts).astype(np.float32) / self.act_scale
 
         self.obs_mean = self.obs.mean(axis=0)
         self.obs_sigma = self.obs.std(axis=0)
@@ -519,6 +533,48 @@ class BcFirstTest:
 
         logger.info("Number of observations: %d", num_obs)
         logger.info("Number of actions: %d", num_acts)
+
+        # Build the Spaces
+        observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(num_obs,), dtype=np.float32)
+        action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(num_acts,), dtype=np.float32)
+
+        # Transitions - Not used for BC, but init with correct size is required
+        # transitions = TransitionsMinimal(
+        #     obs=self.obs,
+        #     acts=self.acts,
+        #     infos=np.array([{} for _ in range(len(self.obs))]),
+        # )
+
+        # Transitions - Not used for BC, but init with correct size is required
+        transitions = Transitions(
+            obs=self.obs,
+            acts=self.acts,
+            infos=np.array([{} for _ in range(len(self.obs))]),
+            next_obs=np.roll(self.obs, -1, axis=0),
+            dones=np.zeros(len(self.obs), dtype=bool),
+        )
+
+        # Random num generator
+        rng = np.random.default_rng(0)
+
+        self.bc_trainer = bc.BC(
+            observation_space=observation_space,
+            action_space=action_space,
+            demonstrations=transitions,
+            rng=rng,
+        )
+
+        #self.bc_trainer.train(n_epochs=1)
+        self.bc_trainer.train(n_epochs=50, log_interval=200)
+
+
+
+
+
+
+
+
+
 
 
 def main():
