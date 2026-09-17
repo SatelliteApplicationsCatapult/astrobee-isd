@@ -9,7 +9,8 @@ import logging
 import coloredlogs
 
 import numpy as np
-from tf.transformations import translation_from_matrix, quaternion_from_matrix, quaternion_slerp
+from tf.transformations import (translation_from_matrix, quaternion_from_matrix,
+                                quaternion_matrix, quaternion_slerp)
 
 from geometry_msgs.msg import Pose, Point, Quaternion, WrenchStamped
 
@@ -64,7 +65,7 @@ class BcData:
         self.data_rate = 0
         self.t = None                  # (N,)      s
         self.tool_pos = None           # (N, 3)    m, in perch_cam
-        self.tool_quat = None          # (N, 4)    x y z w, in perch_cam
+        self.tool_rot = None           # (N, 9)    row-major 3x3, tool in perch_cam
         self.tool_lin_vel = None       # (N, 3)    m/s, in perch_cam
         self.tool_ang_vel = None       # (N, 3)    rad/s, in perch_cam
         self.wrench_cmd = None         # (N, 6)    Fx Fy Fz Tx Ty Tz
@@ -120,8 +121,12 @@ class BcFirstTest:
         self.act_scale = np.array([self.max_force] * 3 + [self.max_torque] * 3 + [1.0], dtype=np.float32)
 
         # Labels
-        self.obs_names = ['px', 'py', 'pz', 'qx', 'qy', 'qz', 'qw',
-                          'vx', 'vy', 'vz', 'wx', 'wy', 'wz']
+        self.obs_names = ['px', 'py', 'pz',
+                          'r00', 'r01', 'r02',
+                          'r10', 'r11', 'r12',
+                          'r20', 'r21', 'r22',
+                          'vx', 'vy', 'vz',
+                          'wx', 'wy', 'wz']
         self.act_names = ['Fx', 'Fy', 'Fz', 'Tx', 'Ty', 'Tz', 'grip']
 
         # Static transform from robot body to perch cam
@@ -389,7 +394,7 @@ class BcFirstTest:
         for d in self.bc_data:
             logger.info(f"Run: {os.path.basename(d.bag_path)}, tool: {d.tool_name}, frames: {len(d.t)}, rate: {d.data_rate:.1f} Hz, duration: {d.t[-1] - d.t[0]:.2f} s")
 
-            for name in ('tool_pos', 'tool_quat', 'tool_lin_vel', 'tool_ang_vel', 'wrench_cmd', 'joy_axes', 'joy_buttons', 'arm_joint_state', 'arm_gripper_state'):
+            for name in ('tool_pos', 'tool_rot', 'tool_lin_vel', 'tool_ang_vel', 'wrench_cmd', 'joy_axes', 'joy_buttons', 'arm_joint_state', 'arm_gripper_state'):
                 a = np.asarray(getattr(d, name)).astype(float)
                 logger.info(f"  {name:<18} shape: {str(a.shape):<12} min: {a.min():9.4f}, max: {a.max():9.4f}, nan: {int(np.isnan(a).sum())}")
 
@@ -432,25 +437,31 @@ class BcFirstTest:
 
 
     @staticmethod
-    def _quat_interp(grid, t, q):
-        """Slerp each grid point between its two bracketing samples."""
-        out = np.empty((len(grid), 4))
+    def _rot_interp(grid, t, q):
+        """Slerp between bracketing samples, returned as flattened 3x3 rotations.
+
+        The quaternion is an interpolation intermediate only. Linear interpolation of matrix elements does not produce a rotation,
+        so the slerp has to happen in quaternion space.
+        """
+        out = np.empty((len(grid), 9))
         for k, tk in enumerate(grid):
             i = np.searchsorted(t, tk, side='right') - 1
             i = min(max(i, 0), len(t) - 2)
             f = (tk - t[i]) / (t[i + 1] - t[i])
-            out[k] = quaternion_slerp(q[i], q[i + 1], f)
+            q_k = quaternion_slerp(q[i], q[i + 1], f)
+            out[k] = quaternion_matrix(q_k)[:3, :3].flatten()
         return out
 
 
     def resample(self, raw, rate_hz):
         """Put every stream on one uniform clock. Continuous quantities are linearly interpolated, discrete ones are held."""
 
-        # Extract translation and quaternion from pose
+        # Extract translation and rotation from pose
         tool_t, keep = self._increasing(raw['tool'][0])
         P = np.asarray(raw['tool'][1], dtype=float)[keep]
         tool_pos = np.array([translation_from_matrix(p) for p in P])
-        tool_quat = np.array([quaternion_from_matrix(p) for p in P])  # x y z w
+        # Interpolation is intermediate only
+        q_interp = np.array([quaternion_from_matrix(p) for p in P])  # x y z w
 
         # Extract linear and angular velocity from twist
         T = np.asarray(raw['tool'][2], dtype=float)[keep]
@@ -483,7 +494,7 @@ class BcFirstTest:
         d.t = np.arange(t0, t1, 1.0 / rate_hz)
 
         d.tool_pos = self._lerp(d.t, tool_t, tool_pos)
-        d.tool_quat = self._quat_interp(d.t, tool_t, tool_quat)
+        d.tool_rot = self._rot_interp(d.t, tool_t, q_interp)
         d.tool_lin_vel = self._lerp(d.t, tool_t, tool_lin_vel)
         d.tool_ang_vel = self._lerp(d.t, tool_t, tool_ang_vel)
 
@@ -510,13 +521,17 @@ class BcFirstTest:
         for d in self.bc_data:
             gripper_cmd = np.maximum.accumulate(d.joy_buttons[:, 0].astype(np.int8))
 
-            obs.append(np.column_stack([d.tool_pos, d.tool_quat, d.tool_lin_vel, d.tool_ang_vel]))
+            obs.append(np.column_stack([d.tool_pos, d.tool_rot, d.tool_lin_vel, d.tool_ang_vel]))
             acts.append(np.column_stack([d.wrench_cmd, gripper_cmd]))
 
         # Observations
         self.obs = np.concatenate(obs).astype(np.float32)
         # Actions, scaled
         self.acts = np.concatenate(acts).astype(np.float32) / self.act_scale
+
+        if self.obs.shape[1] != len(self.obs_names):
+            raise RuntimeError("obs has %d channels but obs_names has %d"
+                               % (self.obs.shape[1], len(self.obs_names)))
 
         self.obs_mean = self.obs.mean(axis=0)
         self.obs_sigma = self.obs.std(axis=0)
