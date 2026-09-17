@@ -119,6 +119,11 @@ class BcFirstTest:
         # Set action scaling param
         self.act_scale = np.array([self.max_force] * 3 + [self.max_torque] * 3 + [1.0], dtype=np.float32)
 
+        # Labels
+        self.obs_names = ['px', 'py', 'pz', 'qx', 'qy', 'qz', 'qw',
+                          'vx', 'vy', 'vz', 'wx', 'wy', 'wz']
+        self.act_names = ['Fx', 'Fy', 'Fz', 'Tx', 'Ty', 'Tz', 'grip']
+
         # Static transform from robot body to perch cam
         # rosrun tf tf_echo honey/perch_cam honey/body
         # - Translation: [0.017, -0.051, -0.133]
@@ -573,19 +578,39 @@ class BcFirstTest:
 
 
     def save_trained_policy(self):
-        """Save policy to file."""
+        """Save the trained policy weights, plus the supporting info and stats needed to use them."""
 
+        import json
         import torch as th
 
         out_dir = os.path.join(self.bag_folder, 'bc_policy')
         os.makedirs(out_dir, exist_ok=True)
 
         policy = self.bc_trainer.policy
+
+        # Weights saved using state_dict, not the whole object
         policy_path = os.path.join(out_dir, 'policy.pt')
-        #self.bc_trainer.save_policy(policy_path)
-        #th.save(policy, policy_path)
         th.save(policy.state_dict(), policy_path)
         logger.info("Saved policy to %s", policy_path)
+
+        # Save the activation type
+        net = policy.mlp_extractor.policy_net
+        acts = {type(m).__name__.lower() for m in net
+                if not isinstance(m, th.nn.Linear)}
+        if len(acts) != 1:
+            raise RuntimeError("Expected one activation type, found %s" % sorted(acts))
+        activation = acts.pop()
+
+        # Everything the weights need in order to mean anything. The network was trained on (obs - mean) / sigma.
+        stats_path = os.path.join(out_dir, 'obs_stats.json')
+        with open(stats_path, 'w') as f:
+            json.dump({'obs_mean': self.obs_mean.tolist(),
+                       'obs_sigma': self.obs_sigma.tolist(),
+                       'act_scale': self.act_scale.tolist(),
+                       'activation': activation,
+                       'obs_names': self.obs_names,
+                       'act_names': self.act_names}, f, indent=2)
+        logger.info("Saved obs stats to %s (activation %s)", stats_path, activation)
 
 
 def main():
