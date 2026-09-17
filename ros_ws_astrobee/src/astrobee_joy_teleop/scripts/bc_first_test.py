@@ -19,6 +19,7 @@ import gymnasium as gym
 from imitation.algorithms import bc
 from imitation.data.types import Transitions, TransitionsMinimal
 
+
 # Logger with coloured outputs
 #logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -143,6 +144,8 @@ class BcFirstTest:
         # BC prep and train test
         self.preprocess_data_for_bc()
         self.bc_train_test()
+        # Save to file
+        self.save_trained_policy()
 
 
     def load_data_from_files(self):
@@ -565,16 +568,24 @@ class BcFirstTest:
         )
 
         #self.bc_trainer.train(n_epochs=1)
-        self.bc_trainer.train(n_epochs=50, log_interval=200)
+        self.n_epochs = 50
+        self.bc_trainer.train(n_epochs=self.n_epochs, log_interval=200)
 
 
+    def save_trained_policy(self):
+        """Save policy to file."""
 
+        import torch as th
 
+        out_dir = os.path.join(self.bag_folder, 'bc_policy')
+        os.makedirs(out_dir, exist_ok=True)
 
-
-
-
-
+        policy = self.bc_trainer.policy
+        policy_path = os.path.join(out_dir, 'policy.pt')
+        #self.bc_trainer.save_policy(policy_path)
+        #th.save(policy, policy_path)
+        th.save(policy.state_dict(), policy_path)
+        logger.info("Saved policy to %s", policy_path)
 
 
 def main():
