@@ -24,28 +24,27 @@ def quat_to_R(q):
     return R
 
 
-def R_to_quat(R):
-    """(..., 3, 3) -> (..., 4) xyzw, canonicalised to w >= 0.
+def R_to_mat9(R):
+    """(..., 3, 3) -> (..., 9) row-major: r00 r01 r02 r10 ...
 
-    NOTE: the w >= 0 canonicalisation is a genuine discontinuity wherever the
-    trajectory passes through w = 0 -- q and -q are the same rotation, so the
-    sign of (x, y, z) flips while the physical orientation barely moves.  In
-    the 2026-08-24 test bag this happens 4 times in 46 s.  It is accepted, not
-    a bug.  Do not "fix" it by tracking sign continuity across samples: that
-    makes the observation history-dependent and breaks the Markov property
-    that behavioural cloning relies on.
+    The observation carries the rotation matrix, not a quaternion.  q and -q
+    are the same rotation, so a quaternion channel jumps by up to 2.0 in one
+    step for an orientation that barely moved -- four such flips in the 46 s
+    test bag.  Tracking sign continuity would fix the jump at the cost of
+    making the observation history-dependent, which breaks the Markov
+    property behavioural cloning relies on.  The matrix has no sign
+    ambiguity at all: R(q) = R(-q).
+
+    Redundant by six constraints (nine numbers, three degrees of freedom).
+    The 6D form of Zhou et al. 2019 -- first two columns, third recovered by
+    cross product -- is the non-redundant continuous alternative if the input
+    width ever matters.
+
+    Must stay byte-for-byte compatible with the training script, which does
+    quaternion_matrix(q)[:3, :3].flatten().
     """
     m = np.asarray(R, float)
-    t = m[..., 0, 0] + m[..., 1, 1] + m[..., 2, 2]
-    s = np.sqrt(np.maximum(t + 1.0, 1e-12)) * 2
-    q = np.empty(m.shape[:-2] + (4,))
-    q[..., 3] = 0.25 * s
-    q[..., 0] = (m[..., 2, 1] - m[..., 1, 2]) / s
-    q[..., 1] = (m[..., 0, 2] - m[..., 2, 0]) / s
-    q[..., 2] = (m[..., 1, 0] - m[..., 0, 1]) / s
-    q /= np.linalg.norm(q, axis=-1, keepdims=True)
-    q *= np.sign(q[..., 3:4] + 1e-30)
-    return q
+    return m.reshape(m.shape[:-2] + (9,))
 
 
 def rot_apply(R, v):

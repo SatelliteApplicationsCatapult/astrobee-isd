@@ -50,7 +50,8 @@
       return { n: n, x: m.col_x[k], ys: ys, r: n <= 16 ? 7.5 : (n <= 80 ? 3.4 : 2.4) };
     });
     // the "actual" strip mirrors the output column
-    const actual = { n: m.sizes[3], x: m.col_x[4], ys: cols[3].ys, r: 7.5 };
+    const LAST = m.sizes.length - 1;
+    const actual = { n: m.sizes[LAST], x: m.col_x[LAST + 1], ys: cols[LAST].ys, r: 7.5 };
 
     // ribbon blocks + precomputed weight block sums
     const gaps = [];
@@ -76,6 +77,10 @@
       }
       gaps.push({
         k: k, nA: nA, nB: nB, W: W, gA: gA, gB: gB,
+        // A small gap is drawn in full -- every edge, no ribbon substrate.
+        // Pooling 32x32 into 4x4 blocks is aggregation that does not
+        // aggregate, and the ribbons then obscure edges that were legible.
+        dense: !!(m.dense && m.dense[k]),
         bandsA: bandsA, bandsB: bandsB, Wsum: Wsum, Wabs: Wabs,
         // Ribbons are composited additively, so gA*gB of them overlapping in
         // the same space saturate to a slab.  Normalising by sqrt(gA*gB)
@@ -146,13 +151,11 @@
     const off = idx * m.stride;
     const F = S.frames;
 
-    const acts = [
-      F.subarray(off + m.offsets.in, off + m.offsets.in + m.sizes[0]),
-      F.subarray(off + m.offsets.h1, off + m.offsets.h1 + m.sizes[1]),
-      F.subarray(off + m.offsets.h2, off + m.offsets.h2 + m.sizes[2]),
-      F.subarray(off + m.offsets.pred, off + m.offsets.pred + m.sizes[3]),
-    ];
-    const actual = F.subarray(off + m.offsets.act, off + m.offsets.act + m.sizes[3]);
+    const LAST = m.sizes.length - 1;
+    const acts = m.offsets.layers.map(function (o, k) {
+      return F.subarray(off + o, off + o + m.sizes[k]);
+    });
+    const actual = F.subarray(off + m.offsets.act, off + m.offsets.act + m.sizes[LAST]);
     const raw = F.subarray(off + m.offsets.raw, off + m.offsets.raw + m.sizes[0]);
 
     ctx.fillStyle = m.palette.bg;
@@ -168,7 +171,9 @@
 
       // --- ribbon substrate ---
       let bmax = 0;
-      for (let i = 0; i < g.blkAbs.length; i++) if (g.blkAbs[i] > bmax) bmax = g.blkAbs[i];
+      if (!g.dense) {
+        for (let i = 0; i < g.blkAbs.length; i++) if (g.blkAbs[i] > bmax) bmax = g.blkAbs[i];
+      }
       if (bmax > 0) {
         for (let A = 0; A < g.gA; A++) {
           const ya = bandY(colA, g.bandsA[A]);
@@ -196,8 +201,12 @@
       // the narrow one look like different drawings.  A cheap pre-filter
       // keeps the candidate list small so the sort stays trivial.
       if (g.max > 0) {
-        const want = m.edge_counts[gi];
-        const pre = g.max * 0.05;
+        // Dense: no selection at all, every connection is drawn.  The floor
+        // only drops edges that contribute nothing this frame.
+        const want = g.dense ? g.nA * g.nB : m.edge_counts[gi];
+        const pre = g.max * (g.dense ? 0.002 : 0.05);
+        const a0 = g.dense ? 0.05 : 0.12;
+        const lw0 = g.dense ? 0.25 : 0.45;
         const picks = [];
         for (let i = 0; i < g.nA; i++) {
           const base = i * g.nB;
@@ -214,8 +223,8 @@
           const ac = picks[p][0], c = picks[p][1], i = picks[p][2], j = picks[p][3];
           const v = Math.pow(ac / g.max, 0.7);
           const col = c < 0 ? AMBER : ELEC;
-          ctx.strokeStyle = rgba(mix(GREY, col, 0.30 + 0.70 * v), 0.12 + 0.55 * v);
-          ctx.lineWidth = 0.45 + 1.55 * v;
+          ctx.strokeStyle = rgba(mix(GREY, col, 0.30 + 0.70 * v), a0 + 0.55 * v);
+          ctx.lineWidth = lw0 + 1.55 * v;
           ctx.beginPath();
           const y0 = colA.ys[i], y1 = colB.ys[j];
           ctx.moveTo(colA.x, y0);
@@ -233,10 +242,16 @@
       for (let i = 0; i < col.n; i++) {
         let c, v;
         if (k === 0) { v = a[i] / sc; c = div(v); }
-        else if (k === 3) {
-          if (i === col.n - 1) { v = a[i]; c = mix(GREY, GRIP, Math.min(1, v)); }
+        else if (k === LAST) {
+          // A trained policy's gripper channel is a plain linear output: it
+          // can land outside 0..1, so clamp for colour but print it raw.
+          if (i === col.n - 1) { v = a[i]; c = mix(GREY, GRIP, Math.min(1, Math.max(0, v))); }
           else { v = a[i] / m.out_scales[i]; c = div(v); }
-        } else { v = a[i] / sc; c = uni(v); }
+        } else {
+          // tanh is signed: drawn on the ReLU ramp every negative unit would
+          // clamp to flat grey and half the layer would look dead.
+          v = a[i] / sc; c = m.hidden_signed[k - 1] ? div(v) : uni(v);
+        }
         neuron(ctx, col.x, col.ys[i], col.r, c, Math.min(1, Math.abs(v)));
       }
     }
@@ -266,6 +281,7 @@
   function labels(ctx, m, L, raw, acts, actual, idx) {
     ctx.textBaseline = 'middle';
     const MONO = 'ui-monospace, Menlo, monospace';
+    const LAST = m.sizes.length - 1;
 
     // Observation column.  The scale caption is not decoration: the colour is
     // (value - mean) / 3 sigma, so it answers "how unusual is this for this
@@ -290,10 +306,10 @@
     // Action columns.  Force full-scale is 0.8 N and torque 0.05 Nm, so the
     // same printed number is ~6x brighter on a torque channel than a force
     // one.  The +/- caption is the denominator that explains it.
-    const mx = (L.cols[3].x + L.actual.x) / 2;
+    const mx = (L.cols[LAST].x + L.actual.x) / 2;
     ctx.textAlign = 'center';
-    for (let i = 0; i < m.sizes[3]; i++) {
-      const y = L.cols[3].ys[i];
+    for (let i = 0; i < m.sizes[LAST]; i++) {
+      const y = L.cols[LAST].ys[i];
       ctx.font = '600 11px ' + MONO;
       ctx.fillStyle = rgba(TEXTB, 0.92);
       ctx.fillText(m.out_labels[i], mx, y - 26);
@@ -302,19 +318,21 @@
       ctx.fillText(m.out_caption[i], mx, y - 13);
       ctx.font = '400 10px ' + MONO;
       ctx.fillStyle = rgba(TEXT, 0.85);
-      ctx.fillText(acts[3][i].toFixed(m.out_dp[i]), L.cols[3].x, y + 20);
+      ctx.fillText(acts[LAST][i].toFixed(m.out_dp[i]), L.cols[LAST].x, y + 20);
       ctx.fillText(actual[i].toFixed(m.out_dp[i]), L.actual.x, y + 20);
     }
 
     // column headers
-    const hd = ['OBSERVATION', 'HIDDEN ' + m.sizes[1], 'HIDDEN ' + m.sizes[2],
-                'PREDICTED', 'ACTUAL'];
-    for (let k = 0; k < 5; k++) {
+    const hd = ['OBSERVATION'];
+    for (let k = 1; k < LAST; k++) hd.push('HIDDEN ' + m.sizes[k]);
+    hd.push('PREDICTED');
+    hd.push('ACTUAL');
+    for (let k = 0; k < hd.length; k++) {
       ctx.textAlign = 'center';
       ctx.font = '600 11px ' + MONO;
       ctx.fillStyle = rgba(TEXT, 0.7);
       ctx.fillText(hd[k], m.col_x[k], m.col_top - 56);
-      if (k === 1 || k === 2) {
+      if (k >= 1 && k < LAST) {
         ctx.font = '400 9px ' + MONO;
         ctx.fillStyle = rgba(TEXT, 0.45);
         ctx.fillText(m.hidden_caption[k - 1], m.col_x[k], m.col_top - 40);
@@ -334,9 +352,24 @@
     ctx.fillStyle = rgba(TEXT, 0.65);
     ctx.fillText('frame ' + idx + ' / ' + (m.n_frames - 1) + '   x' + S.rate.toFixed(2)
                  + '   ' + (S.fps || 0).toFixed(0) + ' fps', 24, 48);
+    ctx.font = '400 10px ' + MONO;
+    ctx.fillStyle = rgba(TEXT, 0.55);
+    ctx.fillText((m.net_source || '?') + '   ' + m.sizes.join('-')
+                 + '   ' + (m.activation || []).join('/')
+                 + '   sigma: ' + (m.stat_source || '?'), 24, 66);
+
+    // Warnings are on the canvas, not in the status line, because the status
+    // line scrolls away and the picture does not.  A network drawn with the
+    // wrong statistics looks entirely plausible.
+    const warn = m.warnings || [];
+    for (let i = 0; i < warn.length; i++) {
+      ctx.font = '600 10px ' + MONO;
+      ctx.fillStyle = rgba(hex(m.palette.warn || '#FF6B6B'), 0.9);
+      ctx.fillText(warn[i], 24, 86 + i * 15);
+    }
 
     // gripper state banner
-    const g = actual[m.sizes[3] - 1] > 0.5;
+    const g = actual[m.sizes[LAST] - 1] > 0.5;
     ctx.textAlign = 'right';
     ctx.font = '600 12px ' + MONO;
     ctx.fillStyle = g ? rgba(GRIP, 0.95) : rgba(TEXT, 0.5);

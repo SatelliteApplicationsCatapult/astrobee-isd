@@ -8,7 +8,7 @@ import numpy as np
 
 from . import bagread as br
 from . import config as C
-from .geometry import quat_to_R, R_to_quat, rot_apply_T, relative_twist
+from .geometry import quat_to_R, R_to_mat9, rot_apply_T, relative_twist
 
 
 class BagError(RuntimeError):
@@ -110,11 +110,15 @@ def load(path, robot=C.DEFAULT_ROBOT, tool=C.DEFAULT_TOOL, log=print):
     p_pc = p_rob + np.einsum('nij,j->ni', R_wb, np.asarray(bp_xyz, float))
 
     pos = rot_apply_T(R_wp, p_tool - p_pc)
-    quat = R_to_quat(np.einsum('nji,njk->nik', R_wp, R_wt))
+    # Tool orientation in perch_cam, as the nine elements of the rotation
+    # matrix.  Same channel order as the training script's
+    # quaternion_matrix(q)[:3, :3].flatten() -- if these two ever disagree the
+    # network is fed a permuted observation and nothing on screen says so.
+    rot = R_to_mat9(np.einsum('nji,njk->nik', R_wp, R_wt))
     lin, ang = relative_twist(p_rob, R_wb, v_rob, w_rob,
                               p_tool, v_tool, w_tool, R_wp)
 
-    obs = np.concatenate([pos, quat, lin, ang], 1)          # (N, 13)
+    obs = np.concatenate([pos, rot, lin, ang], 1)           # (N, 18)
 
     # ---- actions -----------------------------------------------------
     jw_t = np.array(jw_t); jw = np.array(jw) if len(jw) else np.zeros((0, 6))

@@ -91,6 +91,12 @@ def main():
             bag = ui.input('bag file', value='').props('dense outlined').style('width:420px')
             robot = ui.input('robot', value=C.DEFAULT_ROBOT).props('dense outlined').style('width:130px')
             tool = ui.input('tool', value=C.DEFAULT_TOOL).props('dense outlined').style('width:180px')
+
+        with ui.row().classes('items-end gap-3'):
+            # Left blank, the untrained stand-in is used.  obs_stats.json is
+            # picked up from the same directory automatically.
+            policy = ui.input('policy.pt (blank = stand-in)', value='').props(
+                'dense outlined').style('width:620px')
             load_btn = ui.button('Load')
 
         status = ui.label('').style('font:400 11px ui-monospace,Menlo,monospace;color:#8A94A6;')
@@ -107,9 +113,15 @@ def main():
         load_btn.disable()
         status.text = 'reading %s ...' % os.path.basename(path)
         lines = []
+        pol = policy.value.strip() or None
+        if pol and not os.path.isfile(pol):
+            status.text = 'not a file: %s' % pol
+            load_btn.enable()
+            return
         try:
             meta, frames, weights = scene.build(
-                path, robot.value.strip(), tool.value.strip(), log=lines.append)
+                path, robot.value.strip(), tool.value.strip(),
+                policy_path=pol, log=lines.append)
         except Exception as exc:
             traceback.print_exc()
             status.text = '%s: %s' % (type(exc).__name__, exc)
