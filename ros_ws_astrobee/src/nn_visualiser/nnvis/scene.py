@@ -37,7 +37,13 @@ def build(path, robot, tool, policy_path=None, stats_path=None, log=print):
     warnings = []
 
     # ---- network ------------------------------------------------------
-    if policy_path:
+    if policy_path and policy_path.endswith('.onnx'):
+        net = Network.from_onnx(policy_path, log=log)
+        log('policy: %s -> %s, %s'
+            % (os.path.basename(policy_path), net.sizes,
+               '/'.join(net.activation)))
+    elif policy_path:
+        # Dormant .pt + obs_stats.json route.  The UI no longer offers it.
         if stats_path is None:
             guess = os.path.join(os.path.dirname(policy_path), 'obs_stats.json')
             stats_path = guess if os.path.isfile(guess) else None
@@ -56,6 +62,18 @@ def build(path, robot, tool, policy_path=None, stats_path=None, log=print):
             'the policy takes %d observation channels, this bag produces %d. '
             'A policy trained on the quaternion observation cannot be run on '
             'the rotation-matrix one.' % (net.sizes[0], obs.shape[1]))
+
+    # ---- channel contract ----------------------------------------------
+    # Width agreement passes any permutation.  A permuted observation renders
+    # perfectly and is entirely wrong, so the names are compared in order.
+    # C.IN_LABELS / C.OUT_LABELS are this side's declaration of what
+    # dataset.py builds; the file's names are what training used.
+    for got, want, what in ((net.in_labels, C.IN_LABELS, 'observation'),
+                            (net.out_labels, C.OUT_LABELS, 'action')):
+        if got is not None and list(got) != list(want):
+            raise ValueError('%s channel names differ from the policy file.\n'
+                             '  file:       %s\n  visualiser: %s'
+                             % (what, got, want))
 
     # ---- standardisation ----------------------------------------------
     # The network was fitted on (obs - train_mean) / train_sigma.  Feeding it

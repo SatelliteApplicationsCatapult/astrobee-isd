@@ -93,9 +93,8 @@ def main():
             tool = ui.input('tool', value=C.DEFAULT_TOOL).props('dense outlined').style('width:180px')
 
         with ui.row().classes('items-end gap-3'):
-            # Left blank, the untrained stand-in is used.  obs_stats.json is
-            # picked up from the same directory automatically.
-            policy = ui.input('policy.pt (blank = stand-in)', value='').props(
+            # Left blank, the untrained stand-in is used.
+            policy = ui.input('policy.onnx (blank = stand-in)', value='').props(
                 'dense outlined').style('width:620px')
             load_btn = ui.button('Load')
 
@@ -116,6 +115,10 @@ def main():
         pol = policy.value.strip() or None
         if pol and not os.path.isfile(pol):
             status.text = 'not a file: %s' % pol
+            load_btn.enable()
+            return
+        if pol and not pol.endswith('.onnx'):
+            status.text = 'policy must be a .onnx file'
             load_btn.enable()
             return
         try:

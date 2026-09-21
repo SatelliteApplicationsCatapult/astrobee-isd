@@ -14,45 +14,56 @@ python3 run_vis.py          # http://localhost:8095
 ```
 
 Port 8095 to stay clear of 8090/8091. Paste a bag path, set robot and tool
-names, optionally a `policy.pt`, press Load.
+names, optionally a `policy.onnx`, press Load.
 
-Only dependency beyond the standard library is `nicegui` and `numpy`. **torch
-is not needed at all**, not even to read a trained policy — `torchload.py`
-parses a `state_dict` .pt directly, since it is a zip of a flat pickle plus
+Dependencies: `nicegui`, `numpy`, and `onnx` to load a trained policy (imported
+only when one is loaded, so the stand-in runs without it). `onnxruntime` is
+not needed. **torch is not needed at all** — the dormant `.pt` route's
+`torchload.py` parses a `state_dict` .pt directly, since it is a zip of a flat pickle plus
 raw tensor buffers. Keeping a 2 GB dependency out of a tool that multiplies
 three matrices was worth the ~120 lines.
 
 ## Loading a trained policy
 
-Leave the policy field blank and you get the untrained stand-in, as before.
-Point it at `policy.pt` and the visualiser draws the real behaviourally-cloned
-network. `obs_stats.json` is picked up from the same directory automatically.
+Leave the policy field blank and you get the untrained stand-in. Point it at
+`bc_policy/policy.onnx` from `bc_first_test.py`'s `save_trained_policy()`.
+That one file carries everything: weights, `mean`, `sigma` and `scale` as
+initializers, and `obs_names` / `act_names` in `metadata_props`.
 
-Both files come from `bc_first_test.py`'s `save_trained_policy()`:
+The visualiser does **not** run the ONNX graph. It needs every hidden
+activation, so `Network.from_onnx()` pulls the weights out of the initializers
+by name and runs its own forward pass. That pass stops before the graph's
+clip, so overshoot beyond ±1 × `act_scale` stays visible. Verified against an
+independent op-by-op execution of the real graph: **max abs error 0.00e+00**
+over 4,096 rows, 2,058 values at the clip.
 
-```
-bc_policy/
-├── policy.pt         torch state_dict of the SB3 ActorCriticPolicy
-└── obs_stats.json    obs_mean, obs_sigma, act_scale, activation, channel names
-```
+What the loader checks, each raising rather than drawing something wrong:
+every Linear is a single `Gemm` with `transB=1`, `alpha=beta=1`; the op after
+each hidden `Gemm` is a known activation (read from the graph, not assumed);
+`mean`/`scale` widths match the network.
 
-**The stats file is not optional metadata.** The network was fitted on
-`(obs − train_mean) / train_sigma`; standardising with this bag's own
-statistics instead is a different transform, so the predicted column becomes
-the network's output on an input it never saw in that form — wrong in a way
-that looks exactly like ordinary BC error. Without the file the visualiser
-falls back to bag statistics and puts a red warning on the canvas.
+`policy.log_std` is in the file and ignored — it feeds only a `Shape` node and
+cannot reach the deterministic action. `value_net` is not in the file at all;
+the exporter prunes it because `values` is not a graph output.
 
-Two things the `state_dict` cannot carry, both of which come from the JSON:
+**Channel contract is enforced.** `scene.build` compares the file's
+`obs_names` / `act_names` with `config.IN_LABELS` / `OUT_LABELS`, in order,
+and raises on any difference. Width checks pass a permutation; this does not.
+Note `config.IN_LABELS` is a declaration of what `dataset.py` builds, not
+derived from it — keep the two in step.
 
-- **The activation.** An activation module has no parameters, so it leaves
-  nothing in the file but a gap in the layer numbering (`policy_net.0`,
-  `policy_net.2`). SB3 defaults to **tanh**, not ReLU. Absent from the stats,
-  tanh is assumed and logged.
-- **`act_scale`.** Training divides the recorded wrench by it, so the policy
-  emits roughly ±1 per channel while the recorded action is in newtons and
-  newton-metres. The predicted column is multiplied back into physical units
-  before display; without that every torque channel reads 16× wrong.
+### Dormant: `policy.pt` + `obs_stats.json`
+
+The old route is still in the code (`Network.from_policy`, `torchload.py`,
+the `.pt` branch in `scene.build`) but the UI accepts only `.onnx`. Notes on
+it, still valid if it is ever revived:
+
+- The stats file is not optional. Without it the visualiser falls back to bag
+  statistics and warns in red — a different transform from the one the network
+  was fitted on.
+- The `state_dict` cannot carry the activation (no parameters, just a gap in
+  the layer numbering) or `act_scale`; both come from the JSON, and tanh is
+  assumed if the activation is absent.
 
 Depth and width are read from the weights, so `[32, 32]`, `[256, 256, 128]`
 and anything else all work with no config change. Column positions and canvas
@@ -69,8 +80,8 @@ nn_visualiser/
     ├── bagread.py      pure-Python rosbag v2.0 reader + five deserialisers
     ├── geometry.py     rotations, the relative-twist derivation
     ├── dataset.py      bag -> observations/actions, resampled to 30 Hz
-    ├── torchload.py    reads a torch state_dict .pt with no torch installed
-    ├── network.py      the trained-policy loader + the stand-in MLP
+    ├── torchload.py    reads a torch state_dict .pt with no torch (dormant route)
+    ├── network.py      ONNX loader, dormant .pt loader, the stand-in MLP
     ├── scene.py        assembles the binary payload the browser fetches
     └── ui/
         ├── page.py     NiceGUI shell and the three data routes
@@ -163,7 +174,9 @@ five printable levels across the whole range.
 
 ## The two network sources
 
-`Network.from_policy(pt, stats)` reads a real trained policy:
+`Network.from_onnx(path)` is the current trained-policy loader — see
+"Loading a trained policy". The dormant `Network.from_policy(pt, stats)`
+reads the same layers out of a state_dict:
 `mlp_extractor.policy_net.*` for the hidden stack and `action_net` for the
 output. `value_net` is ignored on both counts — BC does not meaningfully
 train it. torch's `Linear` stores `(out, in)`, so the weights are transposed
@@ -259,7 +272,7 @@ Class imbalance is real and unaddressed: one 0→1 transition per demonstration.
 ## Normalisation
 
 With a policy loaded, observations are standardised with the **training**
-statistics out of `obs_stats.json`. That is the transform the network was
+statistics out of `policy.onnx` (`mean`, `sigma`). That is the transform the network was
 fitted on and the only one under which its output means anything.
 
 Without a policy, statistics come from a pre-pass over the whole bag. Not

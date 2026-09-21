@@ -1,9 +1,16 @@
 """The network whose activations get drawn.
 
-Two sources, and they behave differently in ways the display has to know
+Three sources, and they behave differently in ways the display has to know
 about:
 
-``Network.from_policy(pt, stats)`` reads a real behaviourally-cloned policy
+``Network.from_onnx(path)`` reads the ONNX export written by
+``bc_first_test.py``.  This is the current route and the only one the UI
+offers.  Weights, standardisation statistics, act_scale and channel names all
+come out of the one file.
+
+``Network.from_policy(pt, stats)`` is the old route, dormant: nothing in the
+UI reaches it, but ``scene.build`` still dispatches a ``.pt`` path to it.  It
+reads a real behaviourally-cloned policy
 out of an SB3 ``state_dict`` plus the statistics saved beside it.  Hidden
 layers use whatever activation the training script recorded (SB3 defaults to
 tanh, not ReLU); the output layer is bare Linear, so the action channels are
@@ -43,6 +50,17 @@ def _sigmoid(x):
 
 def _gelu(x):
     return 0.5 * x * (1.0 + np.tanh(0.7978845608 * (x + 0.044715 * x ** 3)))
+
+
+# ONNX op_type -> ACTIVATIONS key.  Only ops that can sit between two Gemms of
+# an SB3 MLP.  Anything else raises rather than being drawn as something else.
+ONNX_ACTIVATIONS = {
+    'Tanh': 'tanh',
+    'Relu': 'relu',
+    'Elu': 'elu',
+    'LeakyRelu': 'leakyrelu',
+    'Sigmoid': 'sigmoid',
+}
 
 
 # name -> (function, signed, bound)
@@ -144,7 +162,84 @@ class Network:
             return y
         return y * self.act_scale
 
-    # ---- construction: trained policy ----------------------------------
+    # ---- construction: ONNX export (current) ---------------------------
+    @classmethod
+    def from_onnx(cls, path, log=print):
+        """Load the self-contained ONNX export of an SB3 ActorCriticPolicy.
+
+        The graph is obs -> (obs - mean)/sigma -> policy_net -> action_net ->
+        clip(-1, 1) -> * scale.  The weights are pulled out of the initializers
+        by name and run by this class's own forward pass, because the drawing
+        needs every hidden activation -- ONNX Runtime would only give the
+        output.  That forward pass stops before the clip, so overshoot beyond
+        +/-1 x act_scale stays visible.
+
+        log_std is in the file and ignored: it feeds only a Shape node, so it
+        cannot reach the deterministic action.  value_net is not in the file
+        at all -- the exporter prunes it because 'values' is not an output.
+        """
+        import onnx  # here, not at module top, so the stand-in runs without it
+        from onnx import helper, numpy_helper
+
+        m = onnx.load(path)
+        g = m.graph
+        init = {t.name: numpy_helper.to_array(t) for t in g.initializer}
+
+        pfx = 'policy.mlp_extractor.policy_net.'
+        hidden = _ordered_linears(init, pfx)
+        if not hidden:
+            raise ValueError('no %s* initializers in %s; names are %s'
+                             % (pfx, path, ', '.join(init)))
+        linears = hidden + [('policy.action_net.weight', 'policy.action_net.bias')]
+        for key in ('mean', 'sigma', 'scale') + linears[-1]:
+            if key not in init:
+                raise ValueError('no %r initializer in %s' % (key, path))
+
+        # Each Linear must be a plain Gemm, weight transposed (torch stores
+        # (out, in)).  If the exporter ever emits MatMul+Add or folds the
+        # transpose, this raises instead of drawing a transposed network.
+        by_input = {}
+        for node in g.node:
+            for name in node.input:
+                by_input.setdefault(name, []).append(node)
+        activation = []
+        for k, (w, _) in enumerate(linears):
+            gemm = [n for n in by_input.get(w, []) if n.op_type == 'Gemm']
+            if len(gemm) != 1:
+                raise ValueError('%s is not consumed by exactly one Gemm' % w)
+            attrs = {a.name: helper.get_attribute_value(a)
+                     for a in gemm[0].attribute}
+            if (attrs.get('transB') != 1 or attrs.get('transA', 0) != 0
+                    or attrs.get('alpha', 1.0) != 1.0
+                    or attrs.get('beta', 1.0) != 1.0):
+                raise ValueError('unexpected Gemm attributes on %s: %s'
+                                 % (w, attrs))
+            if k == len(linears) - 1:
+                break
+            # The activation is the op that consumes this hidden Gemm's output.
+            nxt = by_input.get(gemm[0].output[0], [])
+            if len(nxt) != 1 or nxt[0].op_type not in ONNX_ACTIVATIONS:
+                raise ValueError('after %s expected one activation op, got %s'
+                                 % (w, [n.op_type for n in nxt]))
+            activation.append(ONNX_ACTIVATIONS[nxt[0].op_type])
+
+        layers = [(init[w].T, init[b]) for w, b in linears]
+        net = cls(layers, activation=activation, grip_logistic=False)
+        net.source = path
+        net.obs_mean = init['mean'].astype(np.float32)
+        net.obs_sigma = init['sigma'].astype(np.float32)
+        net.act_scale = init['scale'].astype(np.float32)
+
+        meta = {p.key: p.value for p in m.metadata_props}
+        net.in_labels = json.loads(meta['obs_names']) if 'obs_names' in meta else None
+        net.out_labels = json.loads(meta['act_names']) if 'act_names' in meta else None
+
+        if len(net.obs_mean) != net.sizes[0] or len(net.act_scale) != net.sizes[-1]:
+            raise ValueError('mean/scale widths %d/%d do not match the network %s'
+                             % (len(net.obs_mean), len(net.act_scale), net.sizes))
+        return net
+
+    # ---- construction: trained policy, .pt + json (dormant) ------------
     @classmethod
     def from_policy(cls, pt_path, stats_path=None, log=print):
         """Load an SB3 state_dict plus the statistics saved alongside it.
