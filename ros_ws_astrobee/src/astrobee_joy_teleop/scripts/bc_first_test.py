@@ -14,11 +14,16 @@ from tf.transformations import (translation_from_matrix, quaternion_from_matrix,
 
 from geometry_msgs.msg import Pose, Point, Quaternion, WrenchStamped
 
-from astrobee_joy_teleop import pointcloud_utilities as pu
-
 import gymnasium as gym
 from imitation.algorithms import bc
 from imitation.data.types import Transitions, TransitionsMinimal
+
+import json
+import torch as th
+import onnx
+import onnxruntime as ort
+
+from astrobee_joy_teleop import pointcloud_utilities as pu
 
 
 # Logger with coloured outputs
@@ -73,6 +78,20 @@ class BcData:
         self.joy_buttons = None        # (N, n_buttons)
         self.arm_joint_state = None    # (N,)
         self.arm_gripper_state = None  # (N,)
+
+
+class OnnxablePolicy(th.nn.Module):
+    def __init__(self, policy, mean, sigma, scale):
+        super().__init__()
+        self.policy = policy
+        self.register_buffer("mean",  th.as_tensor(mean))
+        self.register_buffer("sigma", th.as_tensor(sigma))
+        self.register_buffer("scale", th.as_tensor(scale))
+
+    def forward(self, obs):
+        # policy() returns 'actions, values, log_prob'. Keep and clamp actions, discard the other two.
+        actions, _, _ = self.policy((obs - self.mean) / self.sigma, deterministic=True)
+        return th.clamp(actions, -1.0, 1.0) * self.scale
 
 
 class BcFirstTest:
@@ -549,7 +568,7 @@ class BcFirstTest:
 
 
     def bc_train_test(self):
-
+        """Train a simple BC model with default policy."""
 
         num_obs = self.obs.shape[1]
         num_acts = self.acts.shape[1]
@@ -561,23 +580,16 @@ class BcFirstTest:
         observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(num_obs,), dtype=np.float32)
         action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(num_acts,), dtype=np.float32)
 
-        # Transitions - Not used for BC, but init with correct size is required
-        # transitions = TransitionsMinimal(
-        #     obs=self.obs,
-        #     acts=self.acts,
-        #     infos=np.array([{} for _ in range(len(self.obs))]),
-        # )
-
-        # Transitions - Not used for BC, but init with correct size is required
+        # Transitions - Not used for BC, but init with correct sizes is required
         transitions = Transitions(
             obs=self.obs,
             acts=self.acts,
-            infos=np.array([{} for _ in range(len(self.obs))]),
-            next_obs=np.roll(self.obs, -1, axis=0),
-            dones=np.zeros(len(self.obs), dtype=bool),
+            infos=np.array([{} for _ in range(len(self.obs))]),  # dummy, empty dict per step, just needs matching length
+            next_obs=np.roll(self.obs, -1, axis=0),              # dummy: obs shifted by one; last wraps to first (unused by BC)
+            dones=np.zeros(len(self.obs), dtype=bool),           # dummy, just needs matching length
         )
 
-        # Random num generator
+        # Random number generator
         rng = np.random.default_rng(0)
 
         self.bc_trainer = bc.BC(
@@ -585,18 +597,19 @@ class BcFirstTest:
             action_space=action_space,
             demonstrations=transitions,
             rng=rng,
+            #device="auto",
+            device="cuda",  # Force training on GPU, fail loudly rather than silently fall back to CPU
         )
 
-        #self.bc_trainer.train(n_epochs=1)
+        logger.info("Training on %s", self.bc_trainer.policy.device)
+
         self.n_epochs = 50
         self.bc_trainer.train(n_epochs=self.n_epochs, log_interval=200)
 
 
+    # Torch save method, also requires auxiliarry obs_stats.json file
     def save_trained_policy(self):
-        """Save the trained policy weights, plus the supporting info and stats needed to use them."""
-
-        import json
-        import torch as th
+        """Save the trained policy weights using Torch for deployment, plus the supporting info and stats needed to use them."""
 
         out_dir = os.path.join(self.bag_folder, 'bc_policy')
         os.makedirs(out_dir, exist_ok=True)
@@ -626,6 +639,50 @@ class BcFirstTest:
                        'obs_names': self.obs_names,
                        'act_names': self.act_names}, f, indent=2)
         logger.info("Saved obs stats to %s (activation %s)", stats_path, activation)
+
+
+    # ONNX method, does not require extra files
+    def save_trained_policy(self):
+        """Save the trained policy in a self-contained ONNX graph for deployment."""
+
+        out_dir = os.path.join(self.bag_folder, 'bc_policy')
+        os.makedirs(out_dir, exist_ok=True)
+
+        policy = self.bc_trainer.policy
+
+        # Save the policy.pt file, if we wanted to continue training an existing model later
+        # Weights saved using state_dict, not the whole object
+        # policy_path = os.path.join(out_dir, 'policy.pt')
+        # th.save(policy.state_dict(), policy_path)
+        # logger.info("Saved policy to %s", policy_path)
+
+        # Create ONNX policy wrapper object
+        # Note: Policy should be on the GPU after training. Export needs policy, buffers and dummy input on one device.
+        model = OnnxablePolicy(policy, self.obs_mean, self.obs_sigma, self.act_scale).cpu()
+
+        # Export to file
+        onnx_path = os.path.join(out_dir, 'policy.onnx')
+        th.onnx.export(model, th.zeros(1, len(self.obs_names)), onnx_path,
+                       input_names=["obs"], output_names=["action"],
+                       dynamic_axes={"obs": {0: "batch_size"}, "action": {0: "batch_size"}},
+                       opset_version=17)
+
+        # Use ONNX module to load, check, set metadata properties, and re-save
+        m = onnx.load(onnx_path)
+        onnx.checker.check_model(m)
+        onnx.helper.set_model_props(m, {"obs_names": json.dumps(self.obs_names),
+                                        "act_names": json.dumps(self.act_names)})
+        onnx.save(m, onnx_path)
+
+        # Readback vs SB3 predict, on real rows (self.obs is standardised)
+        x_std = self.obs[:256]
+        x_phys = (x_std * self.obs_sigma + self.obs_mean).astype(np.float32)
+        ref = policy.predict(x_std, deterministic=True)[0] * self.act_scale
+        got = ort.InferenceSession(onnx_path).run(None, {"obs": x_phys})[0]
+        err = np.abs(ref - got).max()
+        logger.info("Saved %s, max abs diff vs SB3 predict: %.2e", onnx_path, err)
+        if err > 1e-4:
+            raise RuntimeError("ONNX export disagrees with SB3 predict by %.2e" % err)
 
 
 def main():
