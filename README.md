@@ -1,9 +1,9 @@
 # astrobee-isd
 In-station demonstrator project for the Astrobee robot aboard the ISS
 
-Placeholder Catalytic project name:
+Catalytic project name:
 
-ASCEND - Astrobee System for Collaborative Engineering & Novel Deployment
+**BEECORE - Behavioural Embeddings for Exploration, Capture, Object Recognition & Execution**
 
 <br>
 
