@@ -608,37 +608,37 @@ class BcFirstTest:
 
 
     # Torch save method, also requires auxiliarry obs_stats.json file
-    def save_trained_policy(self):
-        """Save the trained policy weights using Torch for deployment, plus the supporting info and stats needed to use them."""
+    # def save_trained_policy(self):
+    #     """Save the trained policy weights using Torch for deployment, plus the supporting info and stats needed to use them."""
 
-        out_dir = os.path.join(self.bag_folder, 'bc_policy')
-        os.makedirs(out_dir, exist_ok=True)
+    #     out_dir = os.path.join(self.bag_folder, 'bc_policy')
+    #     os.makedirs(out_dir, exist_ok=True)
 
-        policy = self.bc_trainer.policy
+    #     policy = self.bc_trainer.policy
 
-        # Weights saved using state_dict, not the whole object
-        policy_path = os.path.join(out_dir, 'policy.pt')
-        th.save(policy.state_dict(), policy_path)
-        logger.info("Saved policy to %s", policy_path)
+    #     # Weights saved using state_dict, not the whole object
+    #     policy_path = os.path.join(out_dir, 'policy.pt')
+    #     th.save(policy.state_dict(), policy_path)
+    #     logger.info("Saved policy to %s", policy_path)
 
-        # Save the activation type
-        net = policy.mlp_extractor.policy_net
-        acts = {type(m).__name__.lower() for m in net
-                if not isinstance(m, th.nn.Linear)}
-        if len(acts) != 1:
-            raise RuntimeError("Expected one activation type, found %s" % sorted(acts))
-        activation = acts.pop()
+    #     # Save the activation type
+    #     net = policy.mlp_extractor.policy_net
+    #     acts = {type(m).__name__.lower() for m in net
+    #             if not isinstance(m, th.nn.Linear)}
+    #     if len(acts) != 1:
+    #         raise RuntimeError("Expected one activation type, found %s" % sorted(acts))
+    #     activation = acts.pop()
 
-        # Everything the weights need in order to mean anything. The network was trained on (obs - mean) / sigma.
-        stats_path = os.path.join(out_dir, 'obs_stats.json')
-        with open(stats_path, 'w') as f:
-            json.dump({'obs_mean': self.obs_mean.tolist(),
-                       'obs_sigma': self.obs_sigma.tolist(),
-                       'act_scale': self.act_scale.tolist(),
-                       'activation': activation,
-                       'obs_names': self.obs_names,
-                       'act_names': self.act_names}, f, indent=2)
-        logger.info("Saved obs stats to %s (activation %s)", stats_path, activation)
+    #     # Everything the weights need in order to mean anything. The network was trained on (obs - mean) / sigma.
+    #     stats_path = os.path.join(out_dir, 'obs_stats.json')
+    #     with open(stats_path, 'w') as f:
+    #         json.dump({'obs_mean': self.obs_mean.tolist(),
+    #                    'obs_sigma': self.obs_sigma.tolist(),
+    #                    'act_scale': self.act_scale.tolist(),
+    #                    'activation': activation,
+    #                    'obs_names': self.obs_names,
+    #                    'act_names': self.act_names}, f, indent=2)
+    #     logger.info("Saved obs stats to %s (activation %s)", stats_path, activation)
 
 
     # ONNX method, does not require extra files
