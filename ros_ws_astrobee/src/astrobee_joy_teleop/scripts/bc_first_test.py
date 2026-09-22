@@ -98,10 +98,11 @@ class BcFirstTest:
     def __init__(self, args):
 
         # # Parameters
-        # self.bag_folder = rospy.get_param('~bag_folder', 'rosbags')
-        # self.rate_hz = rospy.get_param('~rate_hz', 30.0)
-        # self.robot_name = rospy.get_param('~robot_name', 'honey')
-        # self.pc_frame = rospy.get_param('~pc_frame', 'honey/perch_cam')
+        # self.bag_folder = rospy.get_param('~bag_folder')                                              # Required, folder
+        # self.common_params_yaml = rospy.get_param('~common_params_yaml')                              # Required, file
+        # self.rate_hz = rospy.get_param('~rate_hz', 30.0)                                              # Hz
+        # self.robot_name = rospy.get_param('~robot_name', 'honey')                                     # Robot name/namespace
+        # self.pc_frame = rospy.get_param('~pc_frame', 'honey/perch_cam')                               # Pointcloud frame
         # self.model_states_topic = rospy.get_param('~model_states', "/gazebo/model_states")            # gazebo_msgs/ModelStates
         # self.pointcloud_topic = rospy.get_param('~pointcloud_topic', '/honey/hw/depth_perch/points')  # sensor_msgs/PointCloud2
         # self.gamepad_raw_topic = rospy.get_param('~gamepad_raw_topic', '/joy')                        # sensor_msgs/Joy
@@ -131,10 +132,18 @@ class BcFirstTest:
 
         self.tools_list = ["ratchet_wrench", "wrench_10mm"]
 
+
         # Load params
-        params = rosparam.load_file(args.common_params_yaml)[0][0]
+        params = rosparam.load_file(self.common_params_yaml)[0][0]
         self.max_force  = params['wrench_command']['max_force']
         self.max_torque = params['wrench_command']['max_torque']
+
+        # Static transform from robot body to perch cam
+        tf_params = params['robot_sim']['robot_in_perch_tf']
+        self.robot_in_perch_tf = pu.pose_msg_to_array(
+                    Pose(position=Point(*tf_params['position']),
+                         orientation=Quaternion(*tf_params['orientation'])))
+
 
         # Set action scaling param
         self.act_scale = np.array([self.max_force] * 3 + [self.max_torque] * 3 + [1.0], dtype=np.float32)
@@ -147,16 +156,6 @@ class BcFirstTest:
                           'vx', 'vy', 'vz',
                           'wx', 'wy', 'wz']
         self.act_names = ['Fx', 'Fy', 'Fz', 'Tx', 'Ty', 'Tz', 'grip']
-
-        # Static transform from robot body to perch cam
-        # rosrun tf tf_echo honey/perch_cam honey/body
-        # - Translation: [0.017, -0.051, -0.133]
-        # - Rotation: in Quaternion [-0.000, 0.707, -0.000, 0.707]
-        #             in RPY (radian) [0.000, 1.571, 0.000]
-        #             in RPY (degree) [0.000, 90.000, 0.000]
-        self.robot_in_perch_tf = pu.pose_msg_to_array(
-            Pose(position=Point(0.017, -0.051, -0.133),
-                 orientation=Quaternion(0.0, np.sqrt(2.0) / 2.0, 0.0, np.sqrt(2.0) / 2.0)))
 
         # Array of BcData objects, one per bag file
         self.bc_data = []

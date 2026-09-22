@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import rospy
 import rosbag
+import rosparam
 
 #import ros_numpy as rnp
 #from tf2_geometry_msgs import do_transform_pose
@@ -24,14 +25,15 @@ class PoseExtractor:
     def __init__(self):
 
         # Parameters
-        self.bag_path = rospy.get_param('~bag_path', 'input.bag')
+        self.bag_path = rospy.get_param('~bag_path')                                 # Required, folder
+        self.common_params_yaml = rospy.get_param('~common_params_yaml')             # Required, file
         self.tool_name = rospy.get_param('~tool_name', 'ratchet_wrench')
         self.robot_name = rospy.get_param('~robot_name', 'honey')
         self.pc_frame = rospy.get_param('~pc_frame', 'honey/perch_cam')
         self.pointcloud_topic = rospy.get_param('~pointcloud_topic', '/pointcloud')
 
-        self.box_min = rospy.get_param('~box_min', [-0.25, -0.25, 0.0])  # Box region limits [x_min, y_min, z_min]
-        self.box_max = rospy.get_param('~box_max', [ 0.25,  0.25, 0.5])  # Box region limits [x_max, y_max, z_max]
+        self.box_min = rospy.get_param('~box_min', [-0.25, -0.25, 0.0])              # Box region limits [x_min, y_min, z_min]
+        self.box_max = rospy.get_param('~box_max', [ 0.25,  0.25, 0.5])              # Box region limits [x_max, y_max, z_max]
         self.max_history_len = rospy.get_param('~max_history_len', 10)
         self.playback_rate = rospy.get_param('~playback_rate', 2.0)
         self.loop_playback = rospy.get_param('~loop_playback', True)
@@ -56,15 +58,15 @@ class PoseExtractor:
         self.groundtruth_error_deg_pub = rospy.Publisher('~groundtruth_error_deg', Float32, queue_size=10)
 
 
+        # Load params
+        params = rosparam.load_file(self.common_params_yaml)[0][0]
+
         # Static transform from robot body to perch cam
-        # rosrun tf tf_echo honey/perch_cam honey/body
-        # - Translation: [0.017, -0.051, -0.133]
-        # - Rotation: in Quaternion [-0.000, 0.707, -0.000, 0.707]
-        #             in RPY (radian) [0.000, 1.571, 0.000]
-        #             in RPY (degree) [0.000, 90.000, 0.000]
+        tf_params = params['robot_sim']['robot_in_perch_tf']
         self.robot_in_perch_tf = pu.pose_msg_to_array(
-             Pose(position=Point(0.017, -0.051, -0.133),
-                  orientation=Quaternion(-0.0, 0.707, -0.0, 0.707)))
+                    Pose(position=Point(*tf_params['position']),
+                         orientation=Quaternion(*tf_params['orientation'])))
+
 
         # Internal state for velocity estimation (running average over past frames)
         self.pose_history = []  # list of PoseStamped, TwistStamped

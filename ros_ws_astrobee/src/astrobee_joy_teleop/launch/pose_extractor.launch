@@ -3,6 +3,7 @@
 
     <arg name="ns" default="honey" />
     <arg name="bag_path" default="input.bag" />
+    <arg name="common_params_yaml" default="$(find astrobee_ros_demo)/config/common_params.yaml" />
     <arg name="tool_name" default="ratchet_wrench" />
     <arg name="robot_name" default="honey" />
     <arg name="pc_frame" default="honey/perch_cam" />
@@ -16,6 +17,7 @@
             output="screen">
 
             <param name="bag_path" value="$(arg bag_path)" />
+            <param name="common_params_yaml" value="$(arg common_params_yaml)" />
             <param name="tool_name" value="$(arg tool_name)" />
             <param name="robot_name" value="$(arg robot_name)" />
             <param name="pc_frame" value="$(arg pc_frame)" />

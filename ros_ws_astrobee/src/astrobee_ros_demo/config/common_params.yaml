@@ -11,6 +11,28 @@ robot_sim:
   mass: 9.7756                       # kg, body + stowed arm
   inertia: [0.1737, 0.1649, 0.1865]  # kg m^2, body axes, diagonal
 
+  # Static transform from robot body to perch cam
+  # rosrun tf tf_echo honey/perch_cam honey/body
+  # - Translation: [0.017, -0.051, -0.133]
+  # - Rotation: in Quaternion [-0.000, 0.707, -0.000, 0.707]
+  #             in RPY (radian) [0.000, 1.571, 0.000]
+  #             in RPY (degree) [0.000, 90.000, 0.000]
+  # Can also use this custom script using lookup_transform,
+  # since tf_echo does not support precision:
+  # cd $CUSTOM_WS/ros_ws_astrobee/src/astrobee_joy_teleop/scripts/
+  # python3 tf_echo_precise.py honey/perch_cam honey/body 6 1
+  # - Translation: [0.016600, -0.050900, -0.133100]
+  # - Rotation: in Quaternion [-0.000000, 0.707107, -0.000000, 0.707107]
+  #             in RPY (radian) [-0.000000, 1.570796, 0.000000]
+  #             in RPY (degree) [-0.000000, 90.000000, 0.000000]
+  robot_in_perch_tf:
+    position: [0.016600, -0.050900, -0.133100]   # x y z
+    orientation: [0.0, 0.707107, 0.0, 0.707107]  # x y z w
+
+# self.robot_in_perch_tf = pu.pose_msg_to_array(
+#     Pose(position=Point(0.017, -0.051, -0.133),
+#           orientation=Quaternion(0.0, np.sqrt(2.0) / 2.0, 0.0, np.sqrt(2.0) / 2.0)))
+
 # Flight assist (inertial damping)
 flight_assist:
   lin_vel_decay_time: 1.0  # s
