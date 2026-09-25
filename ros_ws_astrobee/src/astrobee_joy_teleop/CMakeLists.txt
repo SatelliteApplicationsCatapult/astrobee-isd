@@ -8,8 +8,9 @@ project(astrobee_joy_teleop)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
-  geometry_msgs
   rospy
+  std_msgs
+  geometry_msgs
   sensor_msgs
   message_generation
 )
@@ -48,11 +49,10 @@ catkin_python_setup()
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
-#   Message2.msg
-# )
+add_message_files(
+  FILES
+  JoyArm.msg
+)
 
 ## Generate services in the 'srv' folder
 add_service_files(
@@ -69,9 +69,10 @@ add_service_files(
 
 ## Generate added messages and services with any dependencies listed here
 generate_messages(
-  #DEPENDENCIES
-  #geometry_msgs
-  #sensor_msgs
+  DEPENDENCIES
+  std_msgs
+  geometry_msgs
+  sensor_msgs
 )
 
 ################################################
@@ -157,11 +158,10 @@ include_directories(
 #############
 
 catkin_install_python(PROGRAMS
-  scripts/astrobee_joy_arm_wrench.py
-  scripts/astrobee_wrench_to_teleop.py
+  scripts/astrobee_joy_arm_wrench.py     # F/T mode
+  #scripts/astrobee_wrench_to_teleop.py  # Teleop mode test - Unused
   scripts/astrobee_recorder.py
   scripts/pose_extraction_test.py
-  # scripts/bc_first_test.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

@@ -7,7 +7,16 @@ add_compile_options(-std=c++11)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED COMPONENTS roscpp geometry_msgs ff_common ff_util std_srvs)
+find_package(catkin REQUIRED COMPONENTS
+    rospy
+    roscpp
+    std_msgs
+    geometry_msgs
+    sensor_msgs
+    std_srvs
+    ff_common
+    ff_util
+)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -148,7 +157,7 @@ target_link_libraries(cpp_ros_node_template ${catkin_LIBRARIES} ${astrobeeLibrar
 )
 
 add_dependencies(cpp_ros_node_template
-        ${${PROJECT_NAME}_EXPORTED_TARGETS} 
+        ${${PROJECT_NAME}_EXPORTED_TARGETS}
         ${catkin_EXPORTED_TARGETS})
 
 #############

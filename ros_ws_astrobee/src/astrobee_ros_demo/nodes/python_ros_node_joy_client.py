@@ -1,29 +1,69 @@
 #!/usr/bin/env python
+
+import math
 import numpy as np
 import rospy
 
 from astrobee_ros_demo.util import *
+import astrobee_joy_teleop.msg
 
 import geometry_msgs.msg
+import sensor_msgs.msg
 import std_srvs.srv
 import ff_msgs.msg
 import ff_msgs.srv
+import actionlib
 
 
+# Arm command constants (from ff_msgs/ArmGoal)
+ARM_STOP        = 0
+ARM_DEPLOY      = 1
+ARM_STOW        = 2
+ARM_PAN         = 3
+ARM_TILT        = 4
+ARM_MOVE        = 5
+GRIPPER_SET     = 6
+GRIPPER_OPEN    = 7
+GRIPPER_CLOSE   = 8
+DISABLE_SERVO   = 9
+
+# Perch arm
+#ARM_ACTION_NS      = "/honey/beh/arm"
+#JOINT_STATES_TOPIC = "/honey/joint_states"
+PAN_JOINT          = "top_aft_arm_distal_joint"
+TILT_JOINT         = "top_aft_arm_proximal_joint"
+TILT_JOINT_OFFSET_DEG = 90.0            # ArmGoal tilt = joint angle + 90. Deployed 0, stowed 180
+PAN_LIMITS_DEG     = (-90.0, 90.0)
+TILT_LIMITS_DEG    = (0.0, 180.0)
+STEP_DEG           = 5.0                # D-pad step per ARM_MOVE
+SEND_INTERVAL      = 0.1                # Seconds between continuous ARM_MOVE goals
 
 
 class SimpleControlExample(object):
     """
-    Class implementing a simple controller example that
-    does absolutely nothing on the NASA Astrobees.
+    Class implementing a custom controller that sends body/arm commands to the NASA Astrobee.
     """
 
     def __init__(self):
         """
-        Initialize controller class
+        Initialise controller class
         """
 
-        # Initialize parameters from file
+        # Namespace
+        self.ns = rospy.get_param("~ns", "honey")
+
+        # Set action/topic/service nammes
+        rospy.loginfo("Namespace: %s", self.ns)
+        if self.ns:
+            self.action_ns = "/{}/beh/arm".format(self.ns)
+            self.joint_states_topic = "/{}/joint_states".format(self.ns)
+            #self.calibrate_srv = "/{}/hw/arm/calibrate_gripper".format(self.ns)
+        else:
+            self.action_ns = "/beh/arm"
+            self.joint_states_topic = "/joint_states"
+            #self.calibrate_srv = "/hw/arm/calibrate_gripper"
+
+        # Initialise parameters from file
         self.max_force = rospy.get_param("/wrench_command/max_force", 0.8)
         self.max_torque = rospy.get_param("/wrench_command/max_torque", 0.05)
         self.mass = rospy.get_param("/robot_sim/mass", 9.7756)
@@ -31,7 +71,7 @@ class SimpleControlExample(object):
         self.lin_vel_decay_time = rospy.get_param("/flight_assist/lin_vel_decay_time", 1.0)
         self.ang_vel_decay_time = rospy.get_param("/flight_assist/ang_vel_decay_time", 1.0)
 
-        # Initialize basic parameters
+        # Initialise basic parameters
         self.dt = 1
         self.rate = rospy.Rate(5)
         self.start = False
@@ -40,7 +80,18 @@ class SimpleControlExample(object):
         self.t0 = 0.0
         self.twist = None
         self.pose = None
+
+        # Initialise gamepad params
+        # Body wrench
         self.joy_wrench = np.zeros((6, ))
+        # Perch arm state
+        self.joy_arm_prev = None    # last JoyArm message, for edge detection
+        self.arm_pan = None         # measured, ArmGoal degrees
+        self.arm_tilt = None
+        self.cmd_pan = 0.0          # commanded while the D-pad is held, ArmGoal degrees
+        self.cmd_tilt = 0.0
+        self.dpad_active = False
+        self.last_move_ts = 0.0
 
         # Data timestamps and validity threshold
         self.ts_threshold = 1.0
@@ -64,11 +115,45 @@ class SimpleControlExample(object):
 
         self.run()
 
-        pass
+
+        # TODO ?
+        # Gripper calibration service
+
+        # rospy.loginfo("Waiting for calibrate service: %s", calibrate_srv)
+
+        # try:
+        #     rospy.wait_for_service(calibrate_srv, timeout=5.0)
+        #     self._cal_srv = rospy.ServiceProxy(calibrate_srv, CalibrateGripper)
+        #     rospy.loginfo("Calibrate service ready.")
+        # except rospy.ROSException:
+        #     rospy.logwarn(
+        #         "Calibrate service '%s' not found.")
+        #     self._cal_srv = None
+
+        # Always calibrate at start
+        # self._calibrate()
+
+
+
+
+    # TODO ?
+    # def _calibrate(self):
+    #     if self._cal_srv is None:
+    #         rospy.logwarn("Calibrate service unavailable — check CALIBRATE_SRV topic name.")
+    #         return
+    #     try:
+    #         resp = self._cal_srv(CalibrateGripperRequest())
+    #         rospy.loginfo("Gripper calibration response: %s", resp)
+    #     except rospy.ServiceException as e:
+    #         rospy.logerr("Calibrate service call failed: %s", e)
+
+
+
 
     # ---------------------------------
     # BEGIN: Callbacks Section
     # ---------------------------------
+
     def pose_sub_cb(self, msg=geometry_msgs.msg.PoseStamped()):
         """
         Pose callback to update the agent's position and attitude.
@@ -90,6 +175,7 @@ class SimpleControlExample(object):
         self.state[6:10] = self.pose[3:7]
         return
 
+
     def twist_sub_cb(self, msg=geometry_msgs.msg.TwistStamped()):
         """
         Twist callback to update the agent's linear and angular velocities.
@@ -110,6 +196,7 @@ class SimpleControlExample(object):
         self.state[10:13] = self.twist[3:6]
         return
 
+
     def joy_wrench_sub_cb(self, msg=geometry_msgs.msg.WrenchStamped()):
         """
         Joystick callback to update the force/torque control messages.
@@ -126,6 +213,94 @@ class SimpleControlExample(object):
                                     msg.wrench.torque.y,
                                     msg.wrench.torque.z])
         return
+
+
+    def joint_states_sub_cb(self, msg=sensor_msgs.msg.JointState()):
+        """
+        Joint state callback to track the perch arm's measured pan and tilt,
+        converted to the ArmGoal convention (degrees).
+
+        :param msg: robot joint states
+        :type msg: sensor_msgs.msg.JointState
+        """
+
+        try:
+            pan = msg.position[msg.name.index(PAN_JOINT)]
+            tilt = msg.position[msg.name.index(TILT_JOINT)]
+        except (ValueError, IndexError):
+            return
+
+        self.arm_pan = math.degrees(pan)
+        self.arm_tilt = math.degrees(tilt) + TILT_JOINT_OFFSET_DEG
+        return
+
+
+    def joy_arm_sub_cb(self, msg=astrobee_joy_teleop.msg.JoyArm()):
+        """
+        Perch arm joystick callback. Input is held button levels; goals are
+        sent on 0->1 transitions. D-pad steps pan/tilt while held, starting
+        from the arm's measured pose.
+
+        :param msg: perch arm joystick state
+        :type msg: astrobee_joy_teleop.msg.JoyArm
+        """
+
+        ts = msg.header.stamp.to_sec()
+        prev = self.joy_arm_prev
+        self.joy_arm_prev = msg
+
+        if prev is None:
+            self.dpad_active = False
+            return
+
+        if msg.deploy and not prev.deploy:
+            rospy.loginfo("ARM: Deploy")
+            self.send_arm_goal(ARM_DEPLOY)
+
+        if msg.stow and not prev.stow:
+            rospy.loginfo("ARM: Stow")
+            self.send_arm_goal(ARM_STOW)
+
+        if msg.gripper_open and not prev.gripper_open:
+            rospy.loginfo("ARM: Gripper Open")
+            self.send_arm_goal(GRIPPER_OPEN)
+
+        if msg.gripper_close and not prev.gripper_close:
+            rospy.loginfo("ARM: Gripper Close")
+            self.send_arm_goal(GRIPPER_CLOSE)
+
+        # D-pad pan/tilt
+        dpad = msg.pan != 0 or msg.tilt != 0
+        prev_dpad = prev.pan != 0 or prev.tilt != 0
+
+        if not dpad:
+            self.dpad_active = False
+            return
+
+        # Neutral -> pressed: start stepping from the measured pose
+        if not prev_dpad:
+            if self.arm_pan is None:
+                rospy.logwarn("ARM: no joint states on " + self.joint_states_topic + ", D-pad ignored")
+                return
+            self.cmd_pan = self.arm_pan
+            self.cmd_tilt = self.arm_tilt
+            self.dpad_active = True
+            self.last_move_ts = 0.0
+
+        # Held since baseline, or no joint states at press
+        if not self.dpad_active:
+            return
+
+        if ts - self.last_move_ts < SEND_INTERVAL:
+            return
+
+        self.cmd_pan = float(np.clip(self.cmd_pan + msg.pan * STEP_DEG, *PAN_LIMITS_DEG))
+        self.cmd_tilt = float(np.clip(self.cmd_tilt + msg.tilt * STEP_DEG, *TILT_LIMITS_DEG))
+        self.last_move_ts = ts
+        rospy.loginfo("ARM_MOVE pan=%.1f tilt=%.1f", self.cmd_pan, self.cmd_tilt)
+        self.send_arm_goal(ARM_MOVE, pan=self.cmd_pan, tilt=self.cmd_tilt)
+        return
+
 
     def start_srv_callback(self, req=std_srvs.srv.SetBoolRequest()):
         """
@@ -163,6 +338,7 @@ class SimpleControlExample(object):
     # END: Callbacks Section
     # ---------------------------------
 
+
     def set_subscribers_publishers(self):
         """
         Helper function to create all publishers and subscribers.
@@ -178,6 +354,14 @@ class SimpleControlExample(object):
         self.joy_wrench_sub = rospy.Subscriber("/joy_wrench",
                                                 geometry_msgs.msg.WrenchStamped,
                                                 self.joy_wrench_sub_cb)
+        self.joy_arm_sub = rospy.Subscriber("/joy_arm",
+                                            astrobee_joy_teleop.msg.JoyArm,
+                                            self.joy_arm_sub_cb,
+                                            queue_size=10)
+        self.joint_states_sub = rospy.Subscriber(self.joint_states_topic,
+                                                 sensor_msgs.msg.JointState,
+                                                 self.joint_states_sub_cb,
+                                                 queue_size=10)
 
         # Publishers
         self.control_pub = rospy.Publisher("~control_topic",
@@ -188,7 +372,6 @@ class SimpleControlExample(object):
                                                ff_msgs.msg.FlightMode,
                                                queue_size=1)
 
-        pass
 
     def set_services(self):
         """
@@ -201,6 +384,15 @@ class SimpleControlExample(object):
         self.pmc_timeout = rospy.ServiceProxy("~pmc_timeout_srv",
                                               ff_msgs.srv.SetFloat)
 
+        # Perch arm action client
+        rospy.loginfo("Waiting for arm action server: %s", self.action_ns)
+        self.arm_client = actionlib.SimpleActionClient(self.action_ns, ff_msgs.msg.ArmAction)
+        if not self.arm_client.wait_for_server(rospy.Duration(5.0)):
+            rospy.logerr("Arm action server not available: %s" % self.action_ns)
+            exit()
+        else:
+            rospy.loginfo("Arm action server connected.")
+
         # Start service
         self.start_service = rospy.Service("~start_srv", std_srvs.srv.SetBool,
                                            self.start_srv_callback)
@@ -208,7 +400,37 @@ class SimpleControlExample(object):
         # Wait for services
         self.onboard_ctl.wait_for_service()
         self.pmc_timeout.wait_for_service()
-        pass
+
+
+    # def _send_goal(self, command, pan=0.0, tilt=0.0, gripper=0.0):
+    #     # Fire-and-forget: send a new goal, preempting the current one
+    #     goal = ArmGoal()
+    #     goal.command  = command
+    #     goal.pan      = float(pan)
+    #     goal.tilt     = float(tilt)
+    #     goal.gripper  = float(gripper)
+    #     self.client.send_goal(goal)
+
+
+
+    def send_arm_goal(self, command, pan=0.0, tilt=0.0):
+        """
+        Fire-and-forget: send a new arm goal, preempting the current one.
+
+        :param command: ArmGoal command
+        :type command: int
+        :param pan: pan angle, degrees
+        :type pan: float
+        :param tilt: tilt angle, degrees
+        :type tilt: float
+        """
+
+        goal = ff_msgs.msg.ArmGoal()
+        goal.command = command
+        goal.pan = float(pan)
+        goal.tilt = float(tilt)
+        self.arm_client.send_goal(goal)
+
 
     def check_data_validity(self):
         """
@@ -233,6 +455,7 @@ class SimpleControlExample(object):
                           + str(pos_val) + "; Vel: " + str(vel_val))
 
         return pos_val and vel_val
+
 
     def create_control_message(self):
         """
@@ -263,6 +486,7 @@ class SimpleControlExample(object):
 
         return u
 
+
     def world_to_body(self, v):
         """
         Rotate a world-frame vector into the body frame using the current
@@ -283,6 +507,7 @@ class SimpleControlExample(object):
         t = 2.0 * np.cross(u, v)
         return v + w * t + np.cross(u, t)
 
+
     def damping_wrench(self):
         """
         Flight assist. Returns a body-frame wrench opposing the current
@@ -300,6 +525,7 @@ class SimpleControlExample(object):
 
         return np.concatenate((np.clip(force, -self.max_force, self.max_force),
                                np.clip(torque, -self.max_torque, self.max_torque)))
+
 
     def create_flight_mode_message(self):
         """
@@ -337,6 +563,7 @@ class SimpleControlExample(object):
         fm.hard_limit_vel = 0.4000
 
         return fm
+
 
     def run(self):
         """
@@ -379,11 +606,9 @@ class SimpleControlExample(object):
             self.control_pub.publish(u)
             self.flight_mode_pub.publish(fm)
             self.rate.sleep()
-    pass
 
 
 if __name__ == "__main__":
     rospy.init_node("node_template")
     dmpc = SimpleControlExample()
     rospy.spin()
-    pass
