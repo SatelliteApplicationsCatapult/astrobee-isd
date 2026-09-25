@@ -37,11 +37,9 @@ class SimpleControlExample(object):
         if self.ns:
             self.action_ns = "/{}/beh/arm".format(self.ns)
             self.joint_sample_topic = "/{}/beh/arm/joint_sample".format(self.ns)
-            #self.calibrate_srv = "/{}/hw/arm/calibrate_gripper".format(self.ns)
         else:
             self.action_ns = "/beh/arm"
             self.joint_sample_topic = "/beh/arm/joint_sample"
-            #self.calibrate_srv = "/hw/arm/calibrate_gripper"
 
         # Initialise parameters from file
         self.max_force = rospy.get_param("/wrench_command/max_force", 0.8)
@@ -62,16 +60,16 @@ class SimpleControlExample(object):
         self.pose = None
 
         # Initialise gamepad params
-        # Body wrench
-        self.joy_wrench = np.zeros((6, ))
-        # Perch arm state
-        self.dpad_prev = None  # D-pad pressed on the previous message
+        # Perch arm
         self.arm_pan = None    # Measured, ArmGoal degrees
         self.arm_tilt = None   # Measured, ArmGoal degrees
         self.cmd_pan = 0.0     # Last successful D-pad pan, ArmGoal degrees
         self.cmd_tilt = 0.0    # Last successful D-pad tilt, ArmGoal degrees
+        self.dpad_prev = None  # D-pad pressed on the previous message
         self.arm_busy = False  # An arm goal is running
         self.arm_goal = None   # Last arm goal sent
+        # Body wrench
+        self.joy_wrench = np.zeros((6, ))
 
         # Data timestamps and validity threshold
         self.ts_threshold = 1.0
@@ -94,40 +92,6 @@ class SimpleControlExample(object):
             rospy.loginfo("Timeout updated.")
 
         self.run()
-
-
-        # TODO ?
-        # Gripper calibration service
-
-        # rospy.loginfo("Waiting for calibrate service: %s", calibrate_srv)
-
-        # try:
-        #     rospy.wait_for_service(calibrate_srv, timeout=5.0)
-        #     self._cal_srv = rospy.ServiceProxy(calibrate_srv, CalibrateGripper)
-        #     rospy.loginfo("Calibrate service ready.")
-        # except rospy.ROSException:
-        #     rospy.logwarn(
-        #         "Calibrate service '%s' not found.")
-        #     self._cal_srv = None
-
-        # Always calibrate at start
-        # self._calibrate()
-
-
-
-
-    # TODO ?
-    # def _calibrate(self):
-    #     if self._cal_srv is None:
-    #         rospy.logwarn("Calibrate service unavailable — check CALIBRATE_SRV topic name.")
-    #         return
-    #     try:
-    #         resp = self._cal_srv(CalibrateGripperRequest())
-    #         rospy.loginfo("Gripper calibration response: %s", resp)
-    #     except rospy.ServiceException as e:
-    #         rospy.logerr("Calibrate service call failed: %s", e)
-
-
 
 
     # ---------------------------------
