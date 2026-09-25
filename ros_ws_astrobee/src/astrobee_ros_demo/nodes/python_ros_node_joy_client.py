@@ -210,9 +210,9 @@ class SimpleControlExample(object):
 
     def joy_arm_sub_cb(self, msg=astrobee_joy_teleop.msg.JoyArm()):
         """
-        Perch arm joystick callback. Input is held button levels; goals are
-        sent on 0->1 transitions. D-pad steps pan/tilt while held, starting
-        from the arm's measured pose, one step per completed goal.
+        Perch arm joystick callback. Buttons send their goal on every message
+        while held. D-pad steps pan/tilt while held, starting from the arm's
+        measured pose, one step per completed goal.
 
         :param msg: perch arm joystick state
         :type msg: astrobee_joy_teleop.msg.JoyArm
