@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-import math
 import numpy as np
 import rospy
 
@@ -8,35 +7,16 @@ from astrobee_ros_demo.util import *
 import astrobee_joy_teleop.msg
 
 import geometry_msgs.msg
-import sensor_msgs.msg
 import std_srvs.srv
 import ff_msgs.msg
 import ff_msgs.srv
 import actionlib
 
 
-# Arm command constants (from ff_msgs/Action/Arm)
-ARM_STOP        = 0
-ARM_DEPLOY      = 1
-ARM_STOW        = 2
-ARM_PAN         = 3
-ARM_TILT        = 4
-ARM_MOVE        = 5
-GRIPPER_SET     = 6
-GRIPPER_OPEN    = 7
-GRIPPER_CLOSE   = 8
-DISABLE_SERVO   = 9
-
 # Perch arm
-#ARM_ACTION_NS      = "/honey/beh/arm"
-#JOINT_STATES_TOPIC = "/honey/joint_states"
-PAN_JOINT          = "top_aft_arm_distal_joint"
-TILT_JOINT         = "top_aft_arm_proximal_joint"
-TILT_JOINT_OFFSET_DEG = 90.0          # ArmGoal tilt = joint angle + 90. Deployed 0, stowed 180
-PAN_LIMITS_DEG     = (-90.0, 90.0)    # See arm_nodelet.cc for limits
-TILT_LIMITS_DEG    = (-20.0, 180.0)   # See arm_nodelet.cc for limits
-STEP_DEG           = 1.0                # D-pad step per ARM_MOVE
-#SEND_INTERVAL      = 0.1                # Seconds between continuous ARM_MOVE goals
+TILT_LIMITS_DEG    = (-20.0, 180.0)    # See arm_nodelet.cc for limits - Stowed 180, deployed 0
+PAN_LIMITS_DEG     = (-90.0, 90.0)     # See arm_nodelet.cc for limits - When viewed top-down, arm on top: +ve CW
+STEP_DEG           = 1.0               # Degrees per D-pad step
 
 
 class SimpleControlExample(object):
@@ -56,11 +36,11 @@ class SimpleControlExample(object):
         rospy.loginfo("Namespace: %s", self.ns)
         if self.ns:
             self.action_ns = "/{}/beh/arm".format(self.ns)
-            self.joint_states_topic = "/{}/joint_states".format(self.ns)
+            self.joint_sample_topic = "/{}/beh/arm/joint_sample".format(self.ns)
             #self.calibrate_srv = "/{}/hw/arm/calibrate_gripper".format(self.ns)
         else:
             self.action_ns = "/beh/arm"
-            self.joint_states_topic = "/joint_states"
+            self.joint_sample_topic = "/beh/arm/joint_sample"
             #self.calibrate_srv = "/hw/arm/calibrate_gripper"
 
         # Initialise parameters from file
@@ -85,13 +65,13 @@ class SimpleControlExample(object):
         # Body wrench
         self.joy_wrench = np.zeros((6, ))
         # Perch arm state
-        self.joy_arm_prev = astrobee_joy_teleop.msg.JoyArm()    # All released
-        self.arm_pan = None         # measured, ArmGoal degrees
-        self.arm_tilt = None
-        self.cmd_pan = 0.0          # commanded while the D-pad is held, ArmGoal degrees
-        self.cmd_tilt = 0.0
-        self.dpad_active = False
-        self.arm_busy = False       # an arm goal is running
+        self.joy_arm_prev = astrobee_joy_teleop.msg.JoyArm()
+        self.arm_pan = None       # Measured, ArmGoal degrees
+        self.arm_tilt = None      # Measured, ArmGoal degrees
+        self.cmd_pan = 0.0        # Commanded while the D-pad is held, ArmGoal degrees
+        self.cmd_tilt = 0.0       # Commanded while the D-pad is held, ArmGoal degrees
+        self.dpad_active = False  # D-pad active state
+        self.arm_busy = False     # An arm goal is running
 
         # Data timestamps and validity threshold
         self.ts_threshold = 1.0
@@ -215,23 +195,20 @@ class SimpleControlExample(object):
         return
 
 
-    def joint_states_sub_cb(self, msg=sensor_msgs.msg.JointState()):
+    def joint_sample_sub_cb(self, msg=ff_msgs.msg.JointSampleStamped()):
         """
-        Joint state callback to track the perch arm's measured pan and tilt,
-        converted to the ArmGoal convention (degrees).
+        Arm joint sample callback to track the perch arm's measured pan and
+        tilt, in ArmGoal degrees.
 
-        :param msg: robot joint states
-        :type msg: sensor_msgs.msg.JointState
+        :param msg: arm joint samples
+        :type msg: ff_msgs.msg.JointSampleStamped
         """
 
-        try:
-            pan = msg.position[msg.name.index(PAN_JOINT)]
-            tilt = msg.position[msg.name.index(TILT_JOINT)]
-        except (ValueError, IndexError):
-            return
-
-        self.arm_pan = math.degrees(pan)
-        self.arm_tilt = math.degrees(tilt) + TILT_JOINT_OFFSET_DEG
+        for sample in msg.samples:
+            if sample.name == "pan":
+                self.arm_pan = sample.angle_pos
+            elif sample.name == "tilt":
+                self.arm_tilt = sample.angle_pos
         return
 
 
@@ -274,14 +251,14 @@ class SimpleControlExample(object):
 
         # Neutral -> pressed: start stepping from the measured pose
         if not prev_dpad:
-            if self.arm_pan is None:
-                rospy.logwarn("ARM: no joint states on " + self.joint_states_topic + ", D-pad ignored")
+            if self.arm_pan is None or self.arm_tilt is None:
+                rospy.logwarn("ARM: no joint samples on " + self.joint_sample_topic + ", D-pad ignored")
                 return
             self.cmd_pan = self.arm_pan
             self.cmd_tilt = self.arm_tilt
             self.dpad_active = True
 
-        # No joint states at press
+        # No joint samples at press
         if not self.dpad_active:
             return
 
@@ -292,7 +269,8 @@ class SimpleControlExample(object):
         self.cmd_pan = float(np.clip(self.cmd_pan + msg.pan * STEP_DEG, *PAN_LIMITS_DEG))
         self.cmd_tilt = float(np.clip(self.cmd_tilt + msg.tilt * STEP_DEG, *TILT_LIMITS_DEG))
         rospy.loginfo("ARM_MOVE pan=%.1f tilt=%.1f", self.cmd_pan, self.cmd_tilt)
-        self.send_arm_goal(ARM_MOVE, pan=self.cmd_pan, tilt=self.cmd_tilt)
+        self.send_arm_goal(ff_msgs.msg.ArmGoal.ARM_MOVE, pan=self.cmd_pan, tilt=self.cmd_tilt)
+
         return
 
 
@@ -351,11 +329,11 @@ class SimpleControlExample(object):
         self.joy_arm_sub = rospy.Subscriber("/joy_arm",
                                             astrobee_joy_teleop.msg.JoyArm,
                                             self.joy_arm_sub_cb,
-                                            queue_size=10)
-        self.joint_states_sub = rospy.Subscriber(self.joint_states_topic,
-                                                 sensor_msgs.msg.JointState,
-                                                 self.joint_states_sub_cb,
-                                                 queue_size=10)
+                                            queue_size=1)
+        self.joint_sample_sub = rospy.Subscriber(self.joint_sample_topic,
+                                                 ff_msgs.msg.JointSampleStamped,
+                                                 self.joint_sample_sub_cb,
+                                                 queue_size=1)
 
         # Publishers
         self.control_pub = rospy.Publisher("~control_topic",
