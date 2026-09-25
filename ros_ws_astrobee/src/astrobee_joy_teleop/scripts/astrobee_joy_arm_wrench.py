@@ -70,23 +70,6 @@ class AstrobeeJoyArmWrench:
         now = rospy.Time.now()
 
 
-        # Perch arm state
-
-        arm = JoyArm()
-        arm.header.stamp  = now
-        arm.calibrate     = buttons[BTN_CALIBRATE] == 1
-        arm.deploy        = buttons[BTN_DEPLOY] == 1
-        arm.stow          = buttons[BTN_STOW] == 1
-        arm.gripper_open  = buttons[BTN_OPEN] == 1
-        arm.gripper_close = buttons[BTN_CLOSE] == 1
-
-        # Flip raw values if necessary
-        arm.pan  = int(round(- axes[AXIS_PAN]))
-        arm.tilt = int(round(axes[AXIS_TILT]))
-
-        self.arm_pub.publish(arm)
-
-
         # Wrench output for Astrobee body control
 
         cmd = WrenchStamped()
@@ -117,6 +100,23 @@ class AstrobeeJoyArmWrench:
         cmd.wrench.torque.y *= CONTROL_DIRECTION
 
         self.wrench_cmd_pub.publish(cmd)
+
+
+        # Perch arm state
+
+        arm = JoyArm()
+        arm.header.stamp  = now
+        arm.calibrate     = buttons[BTN_CALIBRATE] == 1
+        arm.deploy        = buttons[BTN_DEPLOY] == 1
+        arm.stow          = buttons[BTN_STOW] == 1
+        arm.gripper_open  = buttons[BTN_OPEN] == 1
+        arm.gripper_close = buttons[BTN_CLOSE] == 1
+
+        # Flip raw values if necessary
+        arm.pan  = int(round(- axes[AXIS_PAN]))
+        arm.tilt = int(round(axes[AXIS_TILT]))
+
+        self.arm_pub.publish(arm)
 
 
 if __name__ == '__main__':

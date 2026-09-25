@@ -289,14 +289,14 @@ class SimpleControlExample(object):
         self.joy_wrench_sub = rospy.Subscriber("/joy_wrench",
                                                 geometry_msgs.msg.WrenchStamped,
                                                 self.joy_wrench_sub_cb)
-        self.joy_arm_sub = rospy.Subscriber("/joy_arm",
-                                            astrobee_joy_teleop.msg.JoyArm,
-                                            self.joy_arm_sub_cb,
-                                            queue_size=10)
         self.joint_sample_sub = rospy.Subscriber(self.joint_sample_topic,
                                                  ff_msgs.msg.JointSampleStamped,
                                                  self.joint_sample_sub_cb,
                                                  queue_size=10)
+        self.joy_arm_sub = rospy.Subscriber("/joy_arm",
+                                            astrobee_joy_teleop.msg.JoyArm,
+                                            self.joy_arm_sub_cb,
+                                            queue_size=10)
 
         # Publishers
         self.control_pub = rospy.Publisher("~control_topic",
