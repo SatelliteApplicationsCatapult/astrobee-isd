@@ -65,13 +65,13 @@ class SimpleControlExample(object):
         # Body wrench
         self.joy_wrench = np.zeros((6, ))
         # Perch arm state
-        self.joy_arm_prev = astrobee_joy_teleop.msg.JoyArm()
-        self.arm_pan = None       # Measured, ArmGoal degrees
-        self.arm_tilt = None      # Measured, ArmGoal degrees
-        self.cmd_pan = 0.0        # Commanded while the D-pad is held, ArmGoal degrees
-        self.cmd_tilt = 0.0       # Commanded while the D-pad is held, ArmGoal degrees
-        self.dpad_active = False  # D-pad active state
-        self.arm_busy = False     # An arm goal is running
+        self.dpad_prev = None  # D-pad pressed on the previous message
+        self.arm_pan = None    # Measured, ArmGoal degrees
+        self.arm_tilt = None   # Measured, ArmGoal degrees
+        self.cmd_pan = 0.0     # Last successful D-pad pan, ArmGoal degrees
+        self.cmd_tilt = 0.0    # Last successful D-pad tilt, ArmGoal degrees
+        self.arm_busy = False  # An arm goal is running
+        self.arm_goal = None   # Last arm goal sent
 
         # Data timestamps and validity threshold
         self.ts_threshold = 1.0
@@ -153,7 +153,6 @@ class SimpleControlExample(object):
         # Update state variable
         self.state[0:3] = self.pose[0:3]
         self.state[6:10] = self.pose[3:7]
-        return
 
 
     def twist_sub_cb(self, msg=geometry_msgs.msg.TwistStamped()):
@@ -174,7 +173,6 @@ class SimpleControlExample(object):
         # Update state variable
         self.state[3:6] = self.twist[0:3]
         self.state[10:13] = self.twist[3:6]
-        return
 
 
     def joy_wrench_sub_cb(self, msg=geometry_msgs.msg.WrenchStamped()):
@@ -192,7 +190,6 @@ class SimpleControlExample(object):
                                     msg.wrench.torque.x,
                                     msg.wrench.torque.y,
                                     msg.wrench.torque.z])
-        return
 
 
     def joint_sample_sub_cb(self, msg=ff_msgs.msg.JointSampleStamped()):
@@ -209,7 +206,6 @@ class SimpleControlExample(object):
                 self.arm_pan = sample.angle_pos
             elif sample.name == "tilt":
                 self.arm_tilt = sample.angle_pos
-        return
 
 
     def joy_arm_sub_cb(self, msg=astrobee_joy_teleop.msg.JoyArm()):
@@ -222,56 +218,59 @@ class SimpleControlExample(object):
         :type msg: astrobee_joy_teleop.msg.JoyArm
         """
 
-        prev = self.joy_arm_prev
-        self.joy_arm_prev = msg
-
-        if msg.deploy and not prev.deploy:
+        if msg.deploy:
             rospy.loginfo("ARM: Deploy")
-            self.send_arm_goal(ff_msgs.msg.ArmGoal.ARM_DEPLOY)
+            self.send_arm_goal(ff_msgs.msg.ArmGoal(command=ff_msgs.msg.ArmGoal.ARM_DEPLOY))
 
-        if msg.stow and not prev.stow:
+        if msg.stow:
             rospy.loginfo("ARM: Stow")
-            self.send_arm_goal(ff_msgs.msg.ArmGoal.ARM_STOW)
+            self.send_arm_goal(ff_msgs.msg.ArmGoal(command=ff_msgs.msg.ArmGoal.ARM_STOW))
 
-        if msg.gripper_open and not prev.gripper_open:
+        if msg.gripper_open:
             rospy.loginfo("ARM: Gripper Open")
-            self.send_arm_goal(ff_msgs.msg.ArmGoal.GRIPPER_OPEN)
+            self.send_arm_goal(ff_msgs.msg.ArmGoal(command=ff_msgs.msg.ArmGoal.GRIPPER_OPEN))
 
-        if msg.gripper_close and not prev.gripper_close:
+        if msg.gripper_close:
             rospy.loginfo("ARM: Gripper Close")
-            self.send_arm_goal(ff_msgs.msg.ArmGoal.GRIPPER_CLOSE)
+            self.send_arm_goal(ff_msgs.msg.ArmGoal(command=ff_msgs.msg.ArmGoal.GRIPPER_CLOSE))
 
         # D-pad pan/tilt
         dpad = msg.pan != 0 or msg.tilt != 0
-        prev_dpad = prev.pan != 0 or prev.tilt != 0
+        fresh = dpad and not self.dpad_prev
+        self.dpad_prev = dpad
 
         if not dpad:
-            self.dpad_active = False
             return
 
-        # Neutral -> pressed: start stepping from the measured pose
-        if not prev_dpad:
-            if self.arm_pan is None or self.arm_tilt is None:
-                rospy.logwarn("ARM: no joint samples on " + self.joint_sample_topic + ", D-pad ignored")
-                return
+        if self.arm_pan is None or self.arm_tilt is None:
+            rospy.logwarn("ARM: no joint samples on " + self.joint_sample_topic + ", D-pad ignored")
+            return
+
+        # Fresh press: start from the measured pose, and override any running goal
+        if fresh:
             self.cmd_pan = self.arm_pan
             self.cmd_tilt = self.arm_tilt
-            self.dpad_active = True
-
-        # No joint samples at press
-        if not self.dpad_active:
+        # Held: wait for the running goal
+        elif self.arm_busy:
             return
 
-        # Previous goal still running
-        if self.arm_busy:
+        pan = float(np.clip(self.cmd_pan + msg.pan * STEP_DEG, *PAN_LIMITS_DEG))
+        tilt = float(np.clip(self.cmd_tilt + msg.tilt * STEP_DEG, *TILT_LIMITS_DEG))
+
+        # At a limit
+        if pan == self.cmd_pan and tilt == self.cmd_tilt:
             return
 
-        self.cmd_pan = float(np.clip(self.cmd_pan + msg.pan * STEP_DEG, *PAN_LIMITS_DEG))
-        self.cmd_tilt = float(np.clip(self.cmd_tilt + msg.tilt * STEP_DEG, *TILT_LIMITS_DEG))
-        rospy.loginfo("ARM_MOVE pan=%.1f tilt=%.1f", self.cmd_pan, self.cmd_tilt)
-        self.send_arm_goal(ff_msgs.msg.ArmGoal.ARM_MOVE, pan=self.cmd_pan, tilt=self.cmd_tilt)
+        # One axis -> ARM_PAN / ARM_TILT, both -> ARM_MOVE
+        if msg.pan != 0 and msg.tilt != 0:
+            goal = ff_msgs.msg.ArmGoal(command=ff_msgs.msg.ArmGoal.ARM_MOVE, pan=pan, tilt=tilt)
+        elif msg.pan != 0:
+            goal = ff_msgs.msg.ArmGoal(command=ff_msgs.msg.ArmGoal.ARM_PAN, pan=pan)
+        else:
+            goal = ff_msgs.msg.ArmGoal(command=ff_msgs.msg.ArmGoal.ARM_TILT, tilt=tilt)
 
-        return
+        rospy.loginfo("ARM: command=%d pan=%.1f tilt=%.1f", goal.command, pan, tilt)
+        self.send_arm_goal(goal)
 
 
     def start_srv_callback(self, req=std_srvs.srv.SetBoolRequest()):
@@ -329,11 +328,11 @@ class SimpleControlExample(object):
         self.joy_arm_sub = rospy.Subscriber("/joy_arm",
                                             astrobee_joy_teleop.msg.JoyArm,
                                             self.joy_arm_sub_cb,
-                                            queue_size=1)
+                                            queue_size=10)
         self.joint_sample_sub = rospy.Subscriber(self.joint_sample_topic,
                                                  ff_msgs.msg.JointSampleStamped,
                                                  self.joint_sample_sub_cb,
-                                                 queue_size=1)
+                                                 queue_size=10)
 
         # Publishers
         self.control_pub = rospy.Publisher("~control_topic",
@@ -374,42 +373,30 @@ class SimpleControlExample(object):
         self.pmc_timeout.wait_for_service()
 
 
-    # def _send_goal(self, command, pan=0.0, tilt=0.0, gripper=0.0):
-    #     # Fire-and-forget: send a new goal, preempting the current one
-    #     goal = ArmGoal()
-    #     goal.command  = command
-    #     goal.pan      = float(pan)
-    #     goal.tilt     = float(tilt)
-    #     goal.gripper  = float(gripper)
-    #     self.client.send_goal(goal)
-
-
-
-    def send_arm_goal(self, command, pan=0.0, tilt=0.0):
+    def send_arm_goal(self, goal):
         """
-        Send a new arm goal, preempting the current one. Marks the arm busy
-        until the goal finishes.
+        Send an arm goal, preempting the current one.
 
-        :param command: ArmGoal command
-        :type command: int
-        :param pan: pan angle, degrees
-        :type pan: float
-        :param tilt: tilt angle, degrees
-        :type tilt: float
+        :param goal: arm goal, with only the fields its command uses set
+        :type goal: ff_msgs.msg.ArmGoal
         """
 
-        goal = ff_msgs.msg.ArmGoal()
-        goal.command = command
-        goal.pan = float(pan)
-        goal.tilt = float(tilt)
+        self.arm_goal = goal
         self.arm_busy = True
         self.arm_client.send_goal(goal, done_cb=self.arm_done_cb)
 
 
     def arm_done_cb(self, state, result):
         """
-        Arm goal finished, in any terminal state.
+        Arm goal finished, in any terminal state. A D-pad step only advances
+        the commanded pan/tilt if it succeeded.
         """
+
+        if result is not None and result.response == ff_msgs.msg.ArmResult.SUCCESS:
+            if self.arm_goal.command in (ff_msgs.msg.ArmGoal.ARM_PAN, ff_msgs.msg.ArmGoal.ARM_MOVE):
+                self.cmd_pan = self.arm_goal.pan
+            if self.arm_goal.command in (ff_msgs.msg.ArmGoal.ARM_TILT, ff_msgs.msg.ArmGoal.ARM_MOVE):
+                self.cmd_tilt = self.arm_goal.tilt
 
         self.arm_busy = False
 
