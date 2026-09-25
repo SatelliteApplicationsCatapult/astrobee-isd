@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   geometry_msgs
   sensor_msgs
+  gazebo_msgs
   message_generation
 )
 
@@ -158,8 +159,9 @@ include_directories(
 #############
 
 catkin_install_python(PROGRAMS
-  scripts/astrobee_joy_arm_wrench.py     # F/T mode
-  #scripts/astrobee_wrench_to_teleop.py  # Teleop mode test - Unused
+  scripts/astrobee_joy_arm_wrench.py        # F/T mode
+  #scripts/astrobee_wrench_to_teleop.py     # Teleop mode test - Unused
+  scripts/astrobee_inference_arm_wrench.py  # Run inference
   scripts/astrobee_recorder.py
   scripts/pose_extraction_test.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
