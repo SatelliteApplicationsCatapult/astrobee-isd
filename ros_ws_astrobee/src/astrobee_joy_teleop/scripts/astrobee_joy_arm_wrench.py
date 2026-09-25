@@ -59,8 +59,8 @@ class AstrobeeJoyArmWrench:
         rospy.Subscriber('/joy', Joy, self.joy_callback)
 
         rospy.loginfo("Astrobee 6-DoF joystick controller initialised. " \
-                       "To control Astrobee's body/arm, make sure a client is running which " \
-                       "subscribes to the WrenchStamped and JoyArm messages sent from here.")
+                      "To control Astrobee's body/arm, make sure a client is running which " \
+                      "subscribes to the WrenchStamped and JoyArm messages sent from here.")
 
 
     def joy_callback(self, msg):
