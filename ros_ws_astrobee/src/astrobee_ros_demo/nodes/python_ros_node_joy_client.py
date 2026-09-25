@@ -15,7 +15,7 @@ import ff_msgs.srv
 import actionlib
 
 
-# Arm command constants (from ff_msgs/ArmGoal)
+# Arm command constants (from ff_msgs/Action/Arm)
 ARM_STOP        = 0
 ARM_DEPLOY      = 1
 ARM_STOW        = 2
@@ -32,11 +32,11 @@ DISABLE_SERVO   = 9
 #JOINT_STATES_TOPIC = "/honey/joint_states"
 PAN_JOINT          = "top_aft_arm_distal_joint"
 TILT_JOINT         = "top_aft_arm_proximal_joint"
-TILT_JOINT_OFFSET_DEG = 90.0            # ArmGoal tilt = joint angle + 90. Deployed 0, stowed 180
-PAN_LIMITS_DEG     = (-90.0, 90.0)
-TILT_LIMITS_DEG    = (0.0, 180.0)
-STEP_DEG           = 5.0                # D-pad step per ARM_MOVE
-SEND_INTERVAL      = 0.1                # Seconds between continuous ARM_MOVE goals
+TILT_JOINT_OFFSET_DEG = 90.0          # ArmGoal tilt = joint angle + 90. Deployed 0, stowed 180
+PAN_LIMITS_DEG     = (-90.0, 90.0)    # See arm_nodelet.cc for limits
+TILT_LIMITS_DEG    = (-20.0, 180.0)   # See arm_nodelet.cc for limits
+STEP_DEG           = 1.0                # D-pad step per ARM_MOVE
+#SEND_INTERVAL      = 0.1                # Seconds between continuous ARM_MOVE goals
 
 
 class SimpleControlExample(object):
@@ -85,13 +85,13 @@ class SimpleControlExample(object):
         # Body wrench
         self.joy_wrench = np.zeros((6, ))
         # Perch arm state
-        self.joy_arm_prev = None    # last JoyArm message, for edge detection
+        self.joy_arm_prev = astrobee_joy_teleop.msg.JoyArm()    # All released
         self.arm_pan = None         # measured, ArmGoal degrees
         self.arm_tilt = None
         self.cmd_pan = 0.0          # commanded while the D-pad is held, ArmGoal degrees
         self.cmd_tilt = 0.0
         self.dpad_active = False
-        self.last_move_ts = 0.0
+        self.arm_busy = False       # an arm goal is running
 
         # Data timestamps and validity threshold
         self.ts_threshold = 1.0
@@ -239,35 +239,30 @@ class SimpleControlExample(object):
         """
         Perch arm joystick callback. Input is held button levels; goals are
         sent on 0->1 transitions. D-pad steps pan/tilt while held, starting
-        from the arm's measured pose.
+        from the arm's measured pose, one step per completed goal.
 
         :param msg: perch arm joystick state
         :type msg: astrobee_joy_teleop.msg.JoyArm
         """
 
-        ts = msg.header.stamp.to_sec()
         prev = self.joy_arm_prev
         self.joy_arm_prev = msg
 
-        if prev is None:
-            self.dpad_active = False
-            return
-
         if msg.deploy and not prev.deploy:
             rospy.loginfo("ARM: Deploy")
-            self.send_arm_goal(ARM_DEPLOY)
+            self.send_arm_goal(ff_msgs.msg.ArmGoal.ARM_DEPLOY)
 
         if msg.stow and not prev.stow:
             rospy.loginfo("ARM: Stow")
-            self.send_arm_goal(ARM_STOW)
+            self.send_arm_goal(ff_msgs.msg.ArmGoal.ARM_STOW)
 
         if msg.gripper_open and not prev.gripper_open:
             rospy.loginfo("ARM: Gripper Open")
-            self.send_arm_goal(GRIPPER_OPEN)
+            self.send_arm_goal(ff_msgs.msg.ArmGoal.GRIPPER_OPEN)
 
         if msg.gripper_close and not prev.gripper_close:
             rospy.loginfo("ARM: Gripper Close")
-            self.send_arm_goal(GRIPPER_CLOSE)
+            self.send_arm_goal(ff_msgs.msg.ArmGoal.GRIPPER_CLOSE)
 
         # D-pad pan/tilt
         dpad = msg.pan != 0 or msg.tilt != 0
@@ -285,18 +280,17 @@ class SimpleControlExample(object):
             self.cmd_pan = self.arm_pan
             self.cmd_tilt = self.arm_tilt
             self.dpad_active = True
-            self.last_move_ts = 0.0
 
-        # Held since baseline, or no joint states at press
+        # No joint states at press
         if not self.dpad_active:
             return
 
-        if ts - self.last_move_ts < SEND_INTERVAL:
+        # Previous goal still running
+        if self.arm_busy:
             return
 
         self.cmd_pan = float(np.clip(self.cmd_pan + msg.pan * STEP_DEG, *PAN_LIMITS_DEG))
         self.cmd_tilt = float(np.clip(self.cmd_tilt + msg.tilt * STEP_DEG, *TILT_LIMITS_DEG))
-        self.last_move_ts = ts
         rospy.loginfo("ARM_MOVE pan=%.1f tilt=%.1f", self.cmd_pan, self.cmd_tilt)
         self.send_arm_goal(ARM_MOVE, pan=self.cmd_pan, tilt=self.cmd_tilt)
         return
@@ -415,7 +409,8 @@ class SimpleControlExample(object):
 
     def send_arm_goal(self, command, pan=0.0, tilt=0.0):
         """
-        Fire-and-forget: send a new arm goal, preempting the current one.
+        Send a new arm goal, preempting the current one. Marks the arm busy
+        until the goal finishes.
 
         :param command: ArmGoal command
         :type command: int
@@ -429,7 +424,16 @@ class SimpleControlExample(object):
         goal.command = command
         goal.pan = float(pan)
         goal.tilt = float(tilt)
-        self.arm_client.send_goal(goal)
+        self.arm_busy = True
+        self.arm_client.send_goal(goal, done_cb=self.arm_done_cb)
+
+
+    def arm_done_cb(self, state, result):
+        """
+        Arm goal finished, in any terminal state.
+        """
+
+        self.arm_busy = False
 
 
     def check_data_validity(self):
