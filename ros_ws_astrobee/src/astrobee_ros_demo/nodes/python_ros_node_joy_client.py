@@ -76,6 +76,7 @@ class SimpleControlExample(object):
         self.pose_ts = 0.0
         self.twist_ts = 0.0
         self.joy_wrench_ts = 0.0
+        self.last_wrench_ts = 0.0
 
         # Set publishers and subscribers
         self.set_services()
@@ -154,6 +155,8 @@ class SimpleControlExample(object):
                                     msg.wrench.torque.x,
                                     msg.wrench.torque.y,
                                     msg.wrench.torque.z])
+
+        self.last_wrench_ts = rospy.get_time()
 
 
     def joint_sample_sub_cb(self, msg=ff_msgs.msg.JointSampleStamped()):
@@ -526,7 +529,17 @@ class SimpleControlExample(object):
             tin = rospy.get_time()
 
             # self.u_traj = np.zeros((6, ))  # TODO(@User): use your controller here
-            self.u_traj = self.joy_wrench + self.damping_wrench()
+
+
+            # Ignore stale joy_wrench data (>1 sec) - Use a separate timing var in case joy_wrench_ts is empty
+            if rospy.get_time() - self.last_wrench_ts > 1.0:
+                rospy.logwarn_throttle(1.0, "Stale joystick wrench data, ignoring.")
+                # Apply damping only
+                self.u_traj = self.damping_wrench()
+            else:
+                # Apply joy_wrench and damping
+                self.u_traj = self.joy_wrench + self.damping_wrench()
+
 
             tout = rospy.get_time() - tin
             rospy.loginfo("Time for control: " + str(tout))
