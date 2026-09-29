@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="combination_wrench_12mm">
+    <pose>0 0 0 0 0 0</pose>
+    <static>false</static>
+    <link name="link">
+      <!-- link frame = tool CoM; Z = long axis (+ toward tool end), X = forward, Y = Z x X -->
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.084896</mass>
+        <inertia>
+          <ixx>2.794388e-04</ixx>
+          <ixy>-8.696929e-21</ixy>
+          <ixz>3.862409e-24</ixz>
+          <iyy>2.763539e-04</iyy>
+          <iyz>-9.492530e-22</iyz>
+          <izz>3.669617e-06</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://combination_wrench_12mm/meshes/combination_wrench_12mm.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://combination_wrench_12mm/meshes/combination_wrench_12mm.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>

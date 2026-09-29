@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="combination_wrench_08mm_bright">
+    <pose>0 0 0 0 0 0</pose>
+    <static>false</static>
+    <link name="link">
+      <!-- link frame = tool CoM; Z = long axis (+ toward tool end), X = forward, Y = Z x X -->
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.032054</mass>
+        <inertia>
+          <ixx>7.722593e-05</ixx>
+          <ixy>3.279743e-21</ixy>
+          <ixz>-4.257161e-24</ixz>
+          <iyy>7.674229e-05</iyy>
+          <iyz>5.346818e-23</iyz>
+          <izz>6.019387e-07</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://combination_wrench_08mm/meshes/combination_wrench_08mm.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://combination_wrench_08mm/meshes/combination_wrench_08mm.dae</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.450 0.068 0.068 1.0</ambient>
+          <diffuse>1.000 0.150 0.150 1.0</diffuse>
+          <specular>0.85 0.85 0.85 1.0</specular>
+          <emissive>0 0 0 1.0</emissive>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

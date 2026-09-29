@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="combination_wrench_10mm_offset_bright">
+    <pose>0 0 0 0 0 0</pose>
+    <static>false</static>
+    <link name="link">
+      <!-- link frame = tool CoM; Z = long axis (+ toward tool end), X = forward, Y = Z x X -->
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.047622</mass>
+        <inertia>
+          <ixx>9.774340e-05</ixx>
+          <ixy>-2.032925e-20</ixy>
+          <ixz>-1.085192e-24</ixz>
+          <iyy>9.710406e-05</iyy>
+          <iyz>2.428364e-23</iyz>
+          <izz>7.988977e-07</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://combination_wrench_10mm_offset/meshes/combination_wrench_10mm_offset.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://combination_wrench_10mm_offset/meshes/combination_wrench_10mm_offset.dae</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.000 0.450 0.194 1.0</ambient>
+          <diffuse>0.000 1.000 0.430 1.0</diffuse>
+          <specular>0.85 0.85 0.85 1.0</specular>
+          <emissive>0 0 0 1.0</emissive>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

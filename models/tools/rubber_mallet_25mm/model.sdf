@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="rubber_mallet_25mm">
+    <pose>0 0 0 0 0 0</pose>
+    <static>false</static>
+    <link name="link">
+      <!-- link frame = tool CoM; Z = long axis (+ toward tool end), X = forward, Y = Z x X -->
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.334704</mass>
+        <inertia>
+          <ixx>2.323224e-03</ixx>
+          <ixy>3.940122e-10</ixy>
+          <ixz>1.521024e-07</ixz>
+          <iyy>2.334817e-03</iyy>
+          <iyz>3.436982e-08</iyz>
+          <izz>2.156797e-05</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://rubber_mallet_25mm/meshes/rubber_mallet_25mm.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://rubber_mallet_25mm/meshes/rubber_mallet_25mm.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>

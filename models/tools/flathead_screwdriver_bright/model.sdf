@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="flathead_screwdriver_bright">
+    <pose>0 0 0 0 0 0</pose>
+    <static>false</static>
+    <link name="link">
+      <!-- link frame = tool CoM; Z = long axis (+ toward tool end), X = forward, Y = Z x X -->
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.037202</mass>
+        <inertia>
+          <ixx>8.113630e-05</ixx>
+          <ixy>9.596102e-10</ixy>
+          <ixz>6.521664e-10</ixz>
+          <iyy>8.112703e-05</iyy>
+          <iyz>-1.778740e-09</iyz>
+          <izz>1.026147e-06</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://flathead_screwdriver/meshes/flathead_screwdriver.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://flathead_screwdriver/meshes/flathead_screwdriver.dae</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.450 0.000 0.142 1.0</ambient>
+          <diffuse>1.000 0.000 0.315 1.0</diffuse>
+          <specular>0.85 0.85 0.85 1.0</specular>
+          <emissive>0 0 0 1.0</emissive>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

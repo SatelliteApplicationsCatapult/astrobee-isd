@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="phillips_screwdriver_80mm">
+    <pose>0 0 0 0 0 0</pose>
+    <static>false</static>
+    <link name="link">
+      <!-- link frame = tool CoM; Z = long axis (+ toward tool end), X = forward, Y = Z x X -->
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.063936</mass>
+        <inertia>
+          <ixx>1.092029e-04</ixx>
+          <ixy>3.055672e-11</ixy>
+          <ixz>-4.261025e-10</ixz>
+          <iyy>1.092030e-04</iyy>
+          <iyz>-1.830888e-09</iyz>
+          <izz>4.336115e-06</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://phillips_screwdriver_80mm/meshes/phillips_screwdriver_80mm.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://phillips_screwdriver_80mm/meshes/phillips_screwdriver_80mm.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>

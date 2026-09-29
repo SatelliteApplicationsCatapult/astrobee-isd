@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="torque_wrench">
+    <pose>0 0 0 0 0 0</pose>
+    <static>false</static>
+    <link name="link">
+      <!-- link frame = tool CoM; Z = long axis (+ toward tool end), X = forward, Y = Z x X -->
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.939233</mass>
+        <inertia>
+          <ixx>9.212983e-03</ixx>
+          <ixy>-1.242260e-09</ixy>
+          <ixz>-4.753899e-06</ixz>
+          <iyy>9.196441e-03</iyy>
+          <iyz>-3.099230e-08</iyz>
+          <izz>9.576840e-05</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://torque_wrench/meshes/torque_wrench.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://torque_wrench/meshes/torque_wrench.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>
