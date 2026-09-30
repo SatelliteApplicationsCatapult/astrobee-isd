@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# spawn_tools.sh — delete existing tool models, spawn all tools in a centred grid, nudge them into a slow spin.
+# spawn_tools.sh — delete existing tool models, spawn all tools in a centred grid, set them spinning.
 #
 # Usage (run from this script's folder):
 #   ./spawn_tools.sh [FOLDER]                   # FOLDER = sub-folder holding the models (default: tools)
@@ -8,7 +8,7 @@
 # Env options:
 #   VARIANT=default|bright   default-colour <name> (default) or bright <name>_bright models
 #   ONLY=name[,name...]      spawn only these tools (base names, e.g. ONLY=dead_blow_hammer)
-#   NUDGE=0                  skip the nudge step
+#   NUDGE=0                  skip the spin step (tools spawn at rest)
 #   DRY_RUN=1                print the commands instead of running them
 #
 # Mesh URIs are model://<name>/meshes/..., so the running gzserver/gzclient must have ./FOLDER
@@ -30,9 +30,10 @@ Y_MIN=-9.7; Y_MAX=-3.6
 Z_MIN=4.1;  Z_MAX=5.5
 SPACING=0.5
 
-# Nudge: per-tool torque = I * omega / DURATION, so every tool spins at OMEGA_DEG about each body axis
+# Spin: angular velocity set directly via /gazebo/set_model_state (no torque impulse, so no
+# dependence on mass/inertia). Tools spawn with body axes = world axes, so this is OMEGA_DEG
+# about each body axis at t=0. Multi-axis spin then tumbles freely (L conserved, not omega).
 OMEGA_DEG=10.0     # deg/s per axis
-DURATION=0.1       # s
 
 run() { if [[ "$DRY_RUN" == 1 ]]; then echo "+ $*" >&2; else "$@"; fi; }
 
@@ -55,9 +56,9 @@ if ! on_path "$MODELS_DIR"; then
   [[ "$DRY_RUN" == 1 ]] || exit 1
 fi
 
-# ---------- 1. plan: name x y z tx ty tz ----------
+# ---------- 1. plan: name x y z ----------
 PLAN=$(python3 - "$MODELS_DIR" "$VARIANT" "$ONLY" <<EOF
-import sys, os, itertools, math, xml.etree.ElementTree as ET
+import sys, os, itertools, math
 d, variant = sys.argv[1], sys.argv[2]
 names = sorted(n for n in os.listdir(d) if os.path.isfile(os.path.join(d, n, 'model.sdf')))
 names = [n for n in names if n.endswith('_bright') == (variant == 'bright')]
@@ -74,11 +75,8 @@ slots = sorted(itertools.product(X, Y, Z),
                key=lambda p: (round(sum((a - b) ** 2 for a, b in zip(p, c)), 6), p[2], p[1], p[0]))
 if len(names) > len(slots):
     sys.exit(f'ERROR: {len(names)} models but only {len(slots)} grid slots')
-w = math.radians($OMEGA_DEG); dt = $DURATION
 for n, p in zip(names, slots):
-    I = ET.parse(os.path.join(d, n, 'model.sdf')).getroot().find('.//inertia')
-    t = [float(I.find(k).text) * w / dt for k in ('ixx', 'iyy', 'izz')]
-    print(n, *(f'{v:.3f}' for v in p), *(f'{v:.4e}' for v in t))
+    print(n, *(f'{v:.3f}' for v in p))
 EOF
 ) || { echo "$PLAN" >&2; exit 1; }
 [[ -n "$PLAN" ]] || { echo "ERROR: no $VARIANT models found in $MODELS_DIR" >&2; exit 1; }
@@ -113,20 +111,28 @@ while read -r name x y z _; do
 done <<< "$PLAN"
 echo "Spawned: $nsp  failed: $nfail"
 
-# ---------- 4. nudge: pure torque about CoM (link origin = CoM; body axes = world axes at spawn) ----------
+# ---------- 4. spin: set twist directly (pose re-asserted = spawn pose, identity orientation) ----------
 if [[ "$NUDGE" == 1 ]]; then
-  echo "Nudging: ${OMEGA_DEG} deg/s per axis over ${DURATION}s"
-  DS=$(python3 -c "print(int($DURATION))")
-  DNS=$(python3 -c "print(int(round(($DURATION - int($DURATION)) * 1e9)))")
-  while read -r name _ _ _ tx ty tz; do
-    run rosservice call /gazebo/apply_body_wrench "body_name: '$name::link'
-reference_frame: 'world'
-reference_point: {x: 0.0, y: 0.0, z: 0.0}
-wrench:
-  force: {x: 0.0, y: 0.0, z: 0.0}
-  torque: {x: $tx, y: $ty, z: $tz}
-start_time: {secs: 0, nsecs: 0}
-duration: {secs: $DS, nsecs: $DNS}" >/dev/null || echo "  nudge FAILED: $name" >&2
+  W=$(python3 -c "import math; print(f'{math.radians($OMEGA_DEG):.6f}')")
+  echo "Spinning: ${OMEGA_DEG} deg/s (${W} rad/s) per axis via set_model_state"
+  nspin=0
+  while read -r name x y z; do
+    OUT=$(run rosservice call /gazebo/set_model_state "model_state:
+  model_name: '$name'
+  pose:
+    position: {x: $x, y: $y, z: $z}
+    orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
+  twist:
+    linear: {x: 0.0, y: 0.0, z: 0.0}
+    angular: {x: $W, y: $W, z: $W}
+  reference_frame: 'world'" 2>&1)
+    [[ "$DRY_RUN" == 1 ]] && echo "$OUT" >&2
+    if [[ "$DRY_RUN" == 1 ]] || grep -q 'success: True' <<< "$OUT"; then
+      ((nspin++))
+    else
+      echo "  spin FAILED: $name: $(tr '\n' ' ' <<< "$OUT")" >&2
+    fi
   done <<< "$PLAN"
+  echo "Spun: $nspin"
 fi
 echo "Done."
