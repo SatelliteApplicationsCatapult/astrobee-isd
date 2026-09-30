@@ -25,7 +25,7 @@ class OtherTab:
                          ).props('outlined dense').classes('w-full')
                 self.dir_status = ui.label('').classes('text-xs')
 
-                ui.input('Tool models directory', value=settings.models_dir,
+                ui.input('Tools folder (the one on GAZEBO_MODEL_PATH, e.g. .../models/tools)', value=settings.models_dir,
                          on_change=self._on_models_change,
                          ).props('outlined dense').classes('w-full mt-3')
                 self.models_status = ui.label('').classes('text-xs')
@@ -138,6 +138,7 @@ class OtherTab:
         settings.models_dir = str(event.value or '').strip() or DEFAULT_MODELS_DIR
         settings.save()
         self.check_dirs()
+        self.on_save_dir_change()       # also refreshes the Experiment tab's tool list
 
     def check_dirs(self) -> None:
         exists, writable = dir_is_writable(settings.save_dir)
@@ -155,9 +156,14 @@ class OtherTab:
         self.dir_status.style('color: {}'.format(colour))
 
         import os
-        if os.path.isdir(settings.models_dir):
-            self.models_status.set_text('Directory found.')
+        from ..tools import list_tools
+        count = len(list_tools(settings.models_dir))
+        if count:
+            self.models_status.set_text('{} tools found.'.format(count))
             self.models_status.style('color: {}'.format(theme.GREEN))
+        elif os.path.isdir(settings.models_dir):
+            self.models_status.set_text('Folder found, but no tool models (sub-folders with a model.sdf) in it.')
+            self.models_status.style('color: {}'.format(theme.RED))
         else:
             self.models_status.set_text('Not found - tool spawning will fail.')
             self.models_status.style('color: {}'.format(theme.RED))

@@ -68,7 +68,7 @@ Browse to `http://localhost:8090`.
 | `BEECORE_GUI_CONFIG` | `~/.beecore_capture_gui.json` | settings file |
 | `BEECORE_VIDEO_HOST` | `localhost` | as the **browser** resolves it |
 | `BEECORE_VIDEO_PORT` | `8091` | web_video_server, started by the GUI |
-| `CUSTOM_WS` | `/src/custom_ws` | derives the default tool models directory |
+| `CUSTOM_WS` | `/src/custom_ws` | default tools folder is `$CUSTOM_WS/models/tools` |
 
 On first run the GUI migrates `~/.astrobee_data_gui.json` if the new file does
 not exist, so the rename does not reset your camera offset, topic selection or
@@ -264,13 +264,13 @@ once per tick.
 2. clear the fault state — publish `ff_msgs/FaultState {state: 0}` to
    `<ns>/mgt/sys_monitor/state`, latched; the monitor takes itself to
    FUNCTIONAL from there
-3. delete every known tool model present in Gazebo
+3. delete every model in Gazebo whose name is a folder in the tools folder
 4. sample a pose in a 0.5 m box in front of the perch cam
    (`x,y ∈ [-0.25, 0.25]`, `z ∈ [0.2, 0.7]`, perch_cam frame — each axis
    spans 0.5 m, so the tool lands at most 0.25 m off the boresight)
-5. spawn the selected SDF with a uniformly random orientation (Shoemake, not
-   random Euler — that would cluster near the poles)
-6. apply a 0.1 s wrench impulse, then read the tool's velocity back
+5. spawn the selected tool with a uniformly random
+   orientation (Shoemake, not random Euler — that would cluster near the poles)
+6. set its velocity with `/gazebo/set_model_state`, then read it back
 
 Robot before tool: the spawn box is relative to `perch_cam`, so sampling it
 first would place the tool relative to wherever the robot had drifted to. No
@@ -293,37 +293,40 @@ than no teleport.
 The perch_cam pose comes from `/gazebo/model_states` composed with the known
 static `body -> perch_cam` transform, so there is no TF lookup in the loop.
 
-XY perturbation is biased back toward the boresight in proportion to how far
-off-axis the tool spawned, so edge spawns do not immediately drift out of view.
-Z is left uniform. Tune with `CENTRING_BIAS` in `config.py`.
+### Tools
 
-### Perturbation magnitude
+Nothing is hard-coded. **Tools folder** on the Other tab is the tools folder
+itself — the one on gzserver's `GAZEBO_MODEL_PATH` (`.../models/tools`). Every
+sub-folder with a `model.sdf` is a tool; `<name>_bright` is its bright variant
+(Original / Bright toggle). The Gazebo model name is the folder name. A
+thumbnail shows if `<model>/thumb.png` exists — generate them
+with `make_thumbnails.py <tools_dir>` from the tools pipeline. Reset refuses to
+spawn if the tools folder is not on the running gzserver's
+`GAZEBO_MODEL_PATH` (read from `/proc`), because the meshes would not resolve.
 
-Bounded by `FORCE_MAX_N` (3.0 N) and `TORQUE_MAX_NM` (6.0 Nm), derived from the
-tool's real properties in `config.py` — mass 1.0 kg, inertia 0.083 kg·m², read
-off `ratchet_wrench.sdf`. Over a 0.1 s impulse that is up to **0.30 m/s** and
-**414 °/s**.
+### Initial motion
 
-Torque is in **newton-metres**, not milli. The old mNm slider topped out at
-0.69 °/s on this tool, which is why torque looked like it was not being applied
-at all — it was, at a rate you could not see. `NOMINAL_TOOL_INERTIA` had been
-guessed at 1e-3, 83× too small.
+No force or torque: the velocity is **set**, so the result does not depend on
+the tool's mass or inertia.
 
-The SDF's 0.083 is `1/12`, i.e. the placeholder for a 1 m cube from the Gazebo
-inertia tutorial rather than anything wrench-shaped. A real ~0.3 m wrench is
-nearer 0.008, which would spin **ten times faster** for the same torque. If you
-put a real inertia in the SDF, halve these maxima.
+- **Linear** axes are perch_cam axes; **angular** axes are the tool's own body
+  axes (link origin = CoM, Z = long axis).
+- Each ticked axis gets exactly the slider's value with a random sign. X/Y
+  linear signs point back toward the boresight with probability
+  `0.5 + 0.5·CENTRING_BIAS·|offset|`, so edge spawns do not drift straight
+  out of view.
+- Each magnitude has one slider (the value used) and a **Max** box. The
+  track is lighter up to the max and ends in a red stop; the handle cannot
+  pass it. Caps are
+  `SPEED_CAP_M_S` (0.5) and `SPIN_CAP_DEG_S` (360) in `config.py`.
+- **Randomise** flips a coin for each of the six axes (never all off), draws
+  both values in `[0, max]`, and picks a random tool and colour variant if
+  **Randomise tool** is ticked. It never moves the maxima.
 
-After every impulse the tool's velocity is read back off `/gazebo/model_states`
-and logged as measured m/s and °/s, and stored in `metadata.json`. The figures
-under the sliders are a prediction; the log line is the measurement. If it
-reports zeros, the wrench did not land — that is a different bug from "too
-small to see".
-
-What the reset actually did — tool, spawn pose in both frames, and the applied
-wrench — is kept and written into the next bag's `metadata.json` under `reset`,
-with its own timestamp. If no reset has succeeded since launch, or the last one
-failed, that key is `null` rather than stale.
+The requested and measured velocities are logged and stored in
+`metadata.json` under `reset`, with the tool, model and variant. If no reset
+has succeeded since launch, or the last one failed, that key is `null` rather
+than stale.
 
 ## Output
 

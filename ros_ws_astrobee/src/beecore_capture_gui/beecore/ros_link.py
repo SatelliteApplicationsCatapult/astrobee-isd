@@ -114,7 +114,7 @@ def model_pose(model_name: str) -> Optional[Tuple[Vec3, Quat]]:
 def model_velocity(model_name: str) -> Optional[Tuple[Vec3, Vec3]]:
     """(linear, angular) world velocity of a model. Returns None if absent.
 
-    Used to MEASURE what an impulse actually did, rather than asserting it.
+    Used to MEASURE what the velocity set actually did, rather than asserting it.
     """
     msg = _model_states(timeout=2.0, quiet=True)
     if msg is None or model_name not in msg.name:
@@ -129,7 +129,7 @@ def wait_for_model(model_name: str, timeout: float = 3.0) -> bool:
 
     spawn_model returns when the SpawnModel service returns, which is not
     quite the same instant as the body being present in the physics update
-    that apply_body_wrench resolves names against. Cheap insurance.
+    that set_model_state resolves names against. Cheap insurance.
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -139,12 +139,13 @@ def wait_for_model(model_name: str, timeout: float = 3.0) -> bool:
     return False
 
 
-def set_model_state(model_name: str, xyz: Vec3, quat: Quat) -> Tuple[bool, str]:
-    """Teleport a model, zeroing its velocity.
+def set_model_state(model_name: str, xyz: Vec3, quat: Quat, linear: Vec3 = (0.0, 0.0, 0.0), angular: Vec3 = (0.0, 0.0, 0.0)) -> Tuple[bool, str]:
+    """Teleport a model and set its velocity (world frame; zero by default).
 
     The SERVICE, not the topic follow_cam pins with: this is one shot and we
-    want the success flag back. Twist is left at zero so the robot does not
-    carry its old drift into the new run.
+    want the success flag back. The robot reset leaves the twist at zero so it
+    does not carry its old drift into the new run; the tool reset uses it to
+    set the tool moving.
     """
     from gazebo_msgs.msg import ModelState
     from gazebo_msgs.srv import SetModelState
@@ -157,6 +158,8 @@ def set_model_state(model_name: str, xyz: Vec3, quat: Quat) -> Tuple[bool, str]:
          target.pose.position.z) = xyz
         (target.pose.orientation.x, target.pose.orientation.y,
          target.pose.orientation.z, target.pose.orientation.w) = quat
+        (target.twist.linear.x, target.twist.linear.y, target.twist.linear.z) = linear
+        (target.twist.angular.x, target.twist.angular.y, target.twist.angular.z) = angular
         response = rospy.ServiceProxy('/gazebo/set_model_state',
                                       SetModelState)(target)
         return bool(response.success), str(response.status_message)
@@ -192,35 +195,20 @@ def delete_model(model_name: str) -> Tuple[bool, str]:
         return False, str(exc)
 
 
-def model_exists(model_name: str) -> bool:
+def world_model_names() -> Optional[List[str]]:
+    """Every model currently in Gazebo, or None if the service is unreachable."""
     from gazebo_msgs.srv import GetWorldProperties
     try:
         rospy.wait_for_service('/gazebo/get_world_properties', timeout=2.0)
         response = rospy.ServiceProxy('/gazebo/get_world_properties',
                                       GetWorldProperties)()
-        return model_name in response.model_names
+        return list(response.model_names)
     except Exception:                                          # noqa: BLE001
-        return False
+        return None
 
 
-def apply_body_wrench(body_name: str, force: Vec3, torque: Vec3,
-                      duration_s: float) -> Tuple[bool, str]:
-    from geometry_msgs.msg import Point, Vector3, Wrench
-    from gazebo_msgs.srv import ApplyBodyWrench
-    try:
-        rospy.wait_for_service('/gazebo/apply_body_wrench', timeout=2.0)
-        wrench = Wrench(force=Vector3(*force), torque=Vector3(*torque))
-        response = rospy.ServiceProxy('/gazebo/apply_body_wrench',
-                                      ApplyBodyWrench)(
-            body_name=body_name,
-            reference_frame='world',
-            reference_point=Point(0.0, 0.0, 0.0),
-            wrench=wrench,
-            start_time=rospy.Time(0),
-            duration=rospy.Duration(duration_s))
-        return bool(response.success), str(response.status_message)
-    except Exception as exc:                                   # noqa: BLE001
-        return False, str(exc)
+def model_exists(model_name: str) -> bool:
+    return model_name in (world_model_names() or [])
 
 
 class FaultStatePublisher:

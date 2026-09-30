@@ -32,7 +32,7 @@ class RuntimeState:
     busy: bool = False
 
     # What the last reset actually did: which tool, where it was spawned, what
-    # impulse it was given. reset_tools() already computes all of it; keeping
+    # motion it was given. reset_tools() already computes all of it; keeping
     # it here is what lets metadata.json record the initial conditions of the
     # run instead of just the outcome. None means no successful reset since
     # launch, and a failed reset clears it rather than leaving the previous

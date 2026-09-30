@@ -19,8 +19,9 @@ ASSETS_DIR = os.path.join(PROJECT_DIR, 'assets')
 LOGO_FILE = 'SA_SM_White.png'
 
 DEFAULT_SAVE_DIR = '/src/astrobee-isd/data/training/'
+# The tools folder itself - the one that is on gzserver's GAZEBO_MODEL_PATH.
 DEFAULT_MODELS_DIR = os.path.join(
-    os.environ.get('CUSTOM_WS', '/src/custom_ws'), 'models')
+    os.environ.get('CUSTOM_WS', '/src/custom_ws'), 'models', 'tools')
 CONFIG_PATH = os.environ.get(
     'BEECORE_GUI_CONFIG', os.path.expanduser('~/.beecore_capture_gui.json'))
 # Read once if the new file does not exist yet, so a rename does not silently
@@ -176,12 +177,13 @@ VIEWER_WINDOW_NAME = 'beecore_view'    # named target: reused, never duplicated
 
 # --- tools -------------------------------------------------------------------
 #
-# label -> (sdf path relative to models_dir, gazebo model name, link name)
+# No tool list here. Tools are discovered from settings.models_dir (the tools
+# folder): every sub-folder with a model.sdf is a tool, and <name>_bright is
+# the bright variant of <name>. The Gazebo model name is the folder name.
+# See tools.py.
 
-TOOLS = {
-    'Ratchet Wrench': ('tools/ratchet_wrench.sdf', 'ratchet_wrench', 'link'),
-    '10 mm Wrench': ('tools/wrench_10mm.sdf', 'wrench_10mm', 'link'),
-}
+BRIGHT_SUFFIX = '_bright'
+THUMBNAIL = 'thumb.png'     # inside each model folder, next to model.sdf
 
 # Spawn envelope, expressed in the perch_cam frame. A 0.5 m cube: each axis
 # spans 0.5 m, so the tool lands at most 0.25 m off the boresight.
@@ -194,35 +196,17 @@ SPAWN_BOX = {'x': (-0.25, 0.25), 'y': (-0.25, 0.25), 'z': (0.2, 0.7)}
 PERCH_CAM_XYZ = (-0.133, 0.051, -0.017)
 PERCH_CAM_QUAT = (0.0, -0.707, 0.0, 0.707)      # x y z w
 
-# Perturbation: a short impulse, then the tool coasts.
-IMPULSE_S = 0.1
+# Perturbation: the tool's velocity is SET via /gazebo/set_model_state right
+# after spawning - no force/torque impulse, so the result does not depend on
+# the tool's mass or inertia. Per-axis caps (the right-hand slider handle can
+# not go past these):
+SPEED_CAP_M_S = 0.5         # linear, per perch_cam axis
+SPIN_CAP_DEG_S = 360.0      # angular, per tool body axis (about the CoM)
 
-# Tool properties, read off tools/ratchet_wrench.sdf: mass 1.0 kg, diagonal
-# inertia 0.083 kg.m^2 on all three axes.
-#
-# These are not decoration - the slider maxima below are derived from them, and
-# the hint under each slider is computed from them. The earlier values (0.5 kg,
-# 1e-3 kg.m^2) were guesses, and the inertia guess was 83x too small, which is
-# why torque appeared to do nothing: at the old 10 mNm maximum the tool span up
-# at 0.69 deg/s. The wrench WAS being applied; it was just imperceptible.
-#
-# Note 0.083 = 1/12, i.e. a 1 m cube - the placeholder from the Gazebo inertia
-# tutorial rather than a wrench. A real ~0.3 m wrench is nearer 0.008, which
-# would spin ten times faster for the same torque. If you replace the dummy
-# inertia in the SDF, halve these maxima.
-NOMINAL_TOOL_MASS_KG = 1.0
-NOMINAL_TOOL_INERTIA = 0.083
-
-# Slider bounds, chosen as "what still stays in frame":
-#     F = m*v/dt   ->  3.0 N  gives 0.30 m/s, crossing the 0.5 m box in 1.7 s
-#     T = I*w/dt   ->  6.0 Nm gives 7.23 rad/s = 414 deg/s
-# Torque is in NEWTON-metres now, not milli: at this inertia a mNm slider could
-# not reach anything visible even at its top stop.
-FORCE_MAX_N = 3.0
-TORQUE_MAX_NM = 6.0
-
-# How hard off-axis spawns are pushed back toward the perch_cam boresight.
-# 0 = uniform random, 1 = fully biased inward. Applies to X and Y only.
+# How hard off-axis spawns are pushed back toward the perch_cam boresight: the
+# X/Y velocity sign points inward with probability 0.5 + 0.5*bias*|offset|,
+# offset normalised to the box half-width. 0 = random sign, 1 = always inward
+# at the box edge. Z is left random.
 CENTRING_BIAS = 0.7
 
 # --- simulation reset --------------------------------------------------------
@@ -285,13 +269,19 @@ class Settings:
     preview_enabled: bool = False
 
     # tools
-    tool_label: str = 'Ratchet Wrench'
+    tool_name: str = ''             # base folder name; '' = first found
+    tool_bright: bool = False       # spawn <tool_name>_bright instead
+    random_tool: bool = False       # Randomise also picks the tool
     force_axes: Dict[str, bool] = field(
         default_factory=lambda: {'x': True, 'y': True, 'z': True})
     torque_axes: Dict[str, bool] = field(
         default_factory=lambda: {'x': True, 'y': True, 'z': True})
-    max_force_n: float = 1.0        # 0.10 m/s on a 1 kg tool
-    max_torque_nm: float = 0.5      # 35 deg/s at 0.083 kg.m^2
+    # Per-axis magnitude actually used, and the operator's max for it. The
+    # randomiser redraws the value in [0, max]; it never moves the max.
+    speed_m_s: float = 0.1
+    speed_max_m_s: float = 0.2
+    spin_deg_s: float = 30.0
+    spin_max_deg_s: float = 90.0
 
     def load(self, path: str = CONFIG_PATH) -> None:
         if not os.path.isfile(path):
@@ -315,9 +305,17 @@ class Settings:
                     log.info('Ignoring obsolete setting "%s".', key)
             self._migrate_cameras(data)
             self._normalise_cameras()
+            self._migrate_models_dir()
             log.info('Loaded settings from %s', path)
         except Exception as exc:                               # noqa: BLE001
             log.warning('Could not read %s (%s). Using defaults.', path, exc)
+
+    def _migrate_models_dir(self) -> None:
+        """models_dir used to be the parent of tools/; it is now tools/ itself."""
+        nested = os.path.join(self.models_dir, 'tools')
+        if os.path.basename(os.path.normpath(self.models_dir)) != 'tools' and os.path.isdir(nested):
+            log.info('Tool models directory moved to %s (it now points at the tools folder itself).', nested)
+            self.models_dir = nested
 
     # --- cameras -------------------------------------------------------------
 
@@ -457,10 +455,6 @@ class Settings:
     @property
     def cam_step_rad(self) -> float:
         return math.radians(float(self.cam_step_deg))
-
-    @property
-    def tool(self):
-        return TOOLS.get(self.tool_label, TOOLS['Ratchet Wrench'])
 
 
 settings = Settings()

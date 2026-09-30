@@ -8,17 +8,14 @@ The namespace input sits at the top of the right column because it
 parameterises every reading below it.
 """
 
-import math
 import os
 import re
 import threading
 
 from nicegui import ui
 
-from ..config import (FAULT_STATES, FORCE_MAX_N, IMPULSE_S,
-                      NOMINAL_TOOL_INERTIA, NOMINAL_TOOL_MASS_KG,
-                      OUTCOME_FAILURE, OUTCOME_NA, OUTCOME_SUCCESS,
-                      TORQUE_MAX_NM, TOOLS, settings)
+from ..config import (FAULT_STATES, OUTCOME_FAILURE, OUTCOME_NA, OUTCOME_SUCCESS,
+                      SPEED_CAP_M_S, SPIN_CAP_DEG_S, settings)
 from ..diagnostics import DOWN, OK, STALE, UNKNOWN, WARN
 from ..logbridge import log
 from ..naming import build_folder_name
@@ -27,7 +24,15 @@ from ..reset import clear_fault
 from ..ros_link import call_set_bool
 from ..runners import RunnerError
 from ..state import state
+from .. import tools
 from .. import theme
+
+# Magnitude sliders: one draggable value (violet) on a 0..cap track. The part
+# of the track up to the operator's max is lighter and ends in a red stop
+# (PANTONE 485 C, CSS class .max-stop in theme.py); Quasar's inner-max stops
+# the handle there. The max itself is set in the number box beside it.
+SLIDER_PROPS = ('label-always color=secondary track-color=grey-9 inner-track-color=grey-7 '
+                'marker-labels-class=text-brand-red')
 
 _LED_COLOUR = {
     OK: theme.GREEN,
@@ -69,6 +74,8 @@ class ExperimentTab:
             for key, label, hint in _DIAG_ORDER)
         self._leds = {}
         self._details = {}
+        self._axis_boxes = {'force_axes': {}, 'torque_axes': {}}
+        self._tool_names = []
 
     # --- build ---------------------------------------------------------------
 
@@ -219,56 +226,44 @@ class ExperimentTab:
     def _build_tools(self) -> None:
         with ui.card().classes('w-full'):
             ui.label('Tool spawn').classes('eyebrow')
-            self.tool_select = ui.select(
-                list(TOOLS.keys()), value=settings.tool_label,
-                label='Tool', on_change=self._on_tool_change,
-            ).props('outlined dense').classes('w-64')
+            with ui.row().classes('items-center gap-4 w-full'):
+                self.tool_select = ui.select({}, label='Tool', with_input=True, on_change=self._on_tool_change).props('outlined dense').classes('w-72')
+                self.variant_toggle = ui.toggle({'default': 'Original', 'bright': 'Bright'}, value='bright' if settings.tool_bright else 'default',
+                                                on_change=self._on_variant_change).props('no-caps unelevated dense')
+            ui.checkbox('Randomise tool', value=settings.random_tool, on_change=self._on_random_tool).props('dense color=secondary')
+            self.tool_image = ui.image('').classes('w-72 h-20 mt-2').props('fit=contain')
+            self.tool_image_missing = ui.label('No thumbnail for this tool.').classes('text-xs mt-2').style('color: {}'.format(theme.MUTED))
+            self.tools_status = ui.label('').classes('text-xs').style('color: {}'.format(theme.RED))
+            self._reload_tools()
 
-            ui.label('Initial perturbation axes').classes('eyebrow mt-3')
+            ui.label('Initial motion axes').classes('eyebrow mt-3')
             with ui.grid(columns=4).classes('gap-x-4 gap-y-1 items-center'):
                 ui.label('').classes('text-xs')
                 for axis in ('X', 'Y', 'Z'):
-                    ui.label(axis).classes('text-xs text-center').style(
-                        'color: {}'.format(theme.MUTED))
+                    ui.label(axis).classes('text-xs text-center').style('color: {}'.format(theme.MUTED))
+                for group, label in (('force_axes', 'Linear (perch_cam)'), ('torque_axes', 'Angular (tool body)')):
+                    ui.label(label).classes('text-sm')
+                    for axis in ('x', 'y', 'z'):
+                        self._axis_boxes[group][axis] = ui.checkbox(
+                            value=getattr(settings, group).get(axis, True),
+                            on_change=lambda e, g=group, a=axis: self._on_axis(g, a, e.value),
+                        ).props('dense color=secondary').classes('justify-center')
 
-                ui.label('Force').classes('text-sm')
-                for axis in ('x', 'y', 'z'):
-                    ui.checkbox(
-                        value=settings.force_axes.get(axis, True),
-                        on_change=lambda e, a=axis: self._on_axis('force_axes', a, e.value),
-                    ).props('dense color=secondary').classes('justify-center')
-
-                ui.label('Torque').classes('text-sm')
-                for axis in ('x', 'y', 'z'):
-                    ui.checkbox(
-                        value=settings.torque_axes.get(axis, True),
-                        on_change=lambda e, a=axis: self._on_axis('torque_axes', a, e.value),
-                    ).props('dense color=secondary').classes('justify-center')
-
-            ui.label('Perturbation magnitude').classes('eyebrow mt-3')
-            with ui.row().classes('items-center gap-3 w-full no-wrap'):
-                ui.label('Force').classes('text-sm w-16')
-                self.force_slider = ui.slider(
-                    min=0.0, max=FORCE_MAX_N, step=0.05,
-                    value=settings.max_force_n,
-                    on_change=self._on_force).classes('flex-grow').props(
-                        'color=secondary label-always')
-                self.force_value = ui.label('').classes(
-                    'font-mono text-xs w-20 text-right')
-
-            with ui.row().classes('items-center gap-3 w-full no-wrap'):
-                ui.label('Torque').classes('text-sm w-16')
-                self.torque_slider = ui.slider(
-                    min=0.0, max=TORQUE_MAX_NM, step=0.05,
-                    value=settings.max_torque_nm,
-                    on_change=self._on_torque).classes('flex-grow').props(
-                        'color=secondary label-always')
-                self.torque_value = ui.label('').classes(
-                    'font-mono text-xs w-20 text-right')
-
-            self.impulse_hint = ui.label('').classes('text-xs mt-1').style(
-                'color: {}'.format(theme.MUTED))
-            self._update_impulse_hint()
+            ui.label('Magnitude per axis').classes('eyebrow mt-3')
+            self.sliders = {}
+            for key, label, cap, step, fmt in (('speed', 'Speed m/s', SPEED_CAP_M_S, 0.01, '%.2f'), ('spin', 'Spin deg/s', SPIN_CAP_DEG_S, 1.0, '%.0f')):
+                with ui.row().classes('items-center gap-3 w-full no-wrap mt-5'):
+                    ui.label(label).classes('text-sm w-24')
+                    slider = ui.slider(min=0.0, max=cap, step=step, value=min(self._value(key), self._max(key)),
+                                       on_change=lambda e, k=key: self._on_value(k, e.value)).classes('flex-grow max-stop').props(SLIDER_PROPS)
+                    ui.number('Max', value=self._max(key), min=0.0, max=cap, step=step, format=fmt,
+                              on_change=lambda e, k=key: self._on_max(k, e.value)).props('outlined dense').classes('w-24')
+                self.sliders[key] = slider
+                self._set_stop(key)
+            with ui.row().classes('items-center gap-3 mt-2'):
+                ui.button('Randomise', icon='casino', on_click=self._on_randomise).props('outline color=secondary')
+                self.motion_hint = ui.label('').classes('text-xs').style('color: {}'.format(theme.MUTED))
+            self._update_motion_hint()
 
     # --- right column --------------------------------------------------------
 
@@ -331,10 +326,11 @@ class ExperimentTab:
     def confirm_reset(self) -> None:
         with ui.dialog() as dialog, ui.card():
             ui.label('Reset the experiment?').classes('text-lg')
+            tool = '"{}"'.format(tools.tool_label(settings.tool_name or '?'))
             steps = ['Clear the system monitor fault state',
-                     'Remove any spawned tool, then spawn "{}" in front of the '
-                     'perch cam with a random pose and a small impulse'
-                     .format(settings.tool_label)]
+                     'Remove any spawned tool, then spawn {} ({}) in front of the perch cam with a random pose, '
+                     'moving at {:.2f} m/s and {:.0f} deg/s on the ticked axes'.format(
+                         tool, 'bright' if settings.tool_bright else 'original', settings.speed_m_s, settings.spin_deg_s)]
             if settings.home_pose:
                 steps.insert(0, 'Return the robot to its home pose')
             else:
@@ -376,35 +372,98 @@ class ExperimentTab:
         settings.save()
         log.info('Robot namespace set to "%s".', settings.ns)
 
+    def _reload_tools(self) -> None:
+        """Rescan the tools folder and rebuild the dropdown if its contents changed."""
+        names = tools.list_tools(settings.models_dir)
+        if names != self._tool_names:
+            self._tool_names = names
+            self.tool_select.options = {name: tools.tool_label(name) for name in names}
+            self.tool_select.update()
+        if not names:
+            self.tools_status.set_text('No tool models found in {}'.format(settings.models_dir))
+            return
+        self.tools_status.set_text('')
+        if settings.tool_name not in names:
+            settings.tool_name = names[0]
+            settings.save()
+        if self.tool_select.value != settings.tool_name:
+            self.tool_select.set_value(settings.tool_name)
+        self._update_tool_image()
+
+    def _update_tool_image(self) -> None:
+        name = settings.tool_name
+        bright = settings.tool_bright and tools.has_bright(settings.models_dir, name)
+        self.variant_toggle.set_enabled(bool(name) and tools.has_bright(settings.models_dir, name))
+        wanted = 'bright' if settings.tool_bright else 'default'
+        if self.variant_toggle.value != wanted:
+            self.variant_toggle.set_value(wanted)
+        path = tools.thumbnail(settings.models_dir, name + '_bright' if bright else name) if name else None
+        if path:
+            self.tool_image.set_source(path)
+        self.tool_image.set_visibility(bool(path))
+        self.tool_image_missing.set_visibility(bool(name) and not path)
+
     def _on_tool_change(self, event) -> None:
-        settings.tool_label = event.value or 'Ratchet Wrench'
+        if event.value:
+            settings.tool_name = event.value
+            settings.save()
+            self._update_tool_image()
+
+    def _on_variant_change(self, event) -> None:
+        settings.tool_bright = event.value == 'bright'
+        settings.save()
+        self._update_tool_image()
+
+    def _on_random_tool(self, event) -> None:
+        settings.random_tool = bool(event.value)
         settings.save()
 
-    def _on_force(self, event) -> None:
-        settings.max_force_n = float(event.value or 0.0)
+    # speed_m_s / speed_max_m_s and spin_deg_s / spin_max_deg_s, by short key
+    _FIELDS = {'speed': ('speed_m_s', 'speed_max_m_s'), 'spin': ('spin_deg_s', 'spin_max_deg_s')}
+
+    def _value(self, key: str) -> float:
+        return float(getattr(settings, self._FIELDS[key][0]))
+
+    def _max(self, key: str) -> float:
+        return float(getattr(settings, self._FIELDS[key][1]))
+
+    def _set_stop(self, key: str) -> None:
+        """Move the slider's red stop to the max, and pull the value under it."""
+        slider, top = self.sliders[key], self._max(key)
+        slider._props['inner-min'] = 0.0       # numbers via _props, not the props() string
+        slider._props['inner-max'] = top
+        slider._props['marker-labels'] = {top: 'max'}
+        slider.update()
+        if slider.value is not None and slider.value > top:
+            slider.set_value(top)
+
+    def _on_value(self, key: str, value) -> None:
+        setattr(settings, self._FIELDS[key][0], min(float(value or 0.0), self._max(key)))
         settings.save()
-        self._update_impulse_hint()
+        self._update_motion_hint()
 
-    def _on_torque(self, event) -> None:
-        settings.max_torque_nm = float(event.value or 0.0)
+    def _on_max(self, key: str, value) -> None:
+        if value is None:           # mid-edit in the number box
+            return
+        setattr(settings, self._FIELDS[key][1], max(0.0, min(float(value), float(self.sliders[key]._props['max']))))
         settings.save()
-        self._update_impulse_hint()
+        self._set_stop(key)
 
-    def _update_impulse_hint(self) -> None:
-        """Show what the sliders actually mean in units the operator cares about.
+    def _on_randomise(self) -> None:
+        """Axes and the two values; the maxima stay where the operator put them."""
+        tools.randomise(settings)
+        for group, boxes in self._axis_boxes.items():
+            for axis, box in boxes.items():
+                box.set_value(getattr(settings, group)[axis])
+        for key, slider in self.sliders.items():
+            slider.set_value(self._value(key))
+        self._reload_tools()
+        log.info('Randomised: %s (%s), linear %s at %.3f m/s, angular %s at %.1f deg/s', settings.tool_name, 'bright' if settings.tool_bright else 'original',
+                 ''.join(a for a, on in settings.force_axes.items() if on) or '-', settings.speed_m_s,
+                 ''.join(a for a, on in settings.torque_axes.items() if on) or '-', settings.spin_deg_s)
 
-        Computed from the tool's real mass and inertia (config.py), read off
-        the SDF. The figures are a prediction; the log prints the MEASURED
-        velocity after every reset, and that is the one to believe.
-        """
-        self.force_value.set_text('{:.2f} N'.format(settings.max_force_n))
-        self.torque_value.set_text('{:.2f} Nm'.format(settings.max_torque_nm))
-
-        speed = settings.max_force_n * IMPULSE_S / NOMINAL_TOOL_MASS_KG
-        spin = math.degrees(
-            settings.max_torque_nm * IMPULSE_S / NOMINAL_TOOL_INERTIA)
-        self.impulse_hint.set_text(
-            'Up to {:.3f} m/s and {:.0f} deg/s.'.format(speed, spin))
+    def _update_motion_hint(self) -> None:
+        self.motion_hint.set_text('Each ticked axis: \u00b1{:.2f} m/s, \u00b1{:.0f} deg/s (random sign).'.format(settings.speed_m_s, settings.spin_deg_s))
 
     def _on_axis(self, group: str, axis: str, value: bool) -> None:
         getattr(settings, group)[axis] = bool(value)
@@ -443,6 +502,8 @@ class ExperimentTab:
 
         self.id_input.value = '{:03d}'.format(settings.experiment_id)
         self._update_preview()
+        # A random-tool reset changes settings.tool_name on the worker thread.
+        self._reload_tools()
 
     def refresh_diagnostics(self) -> None:
         snapshot = self.diagnostics.snapshot()

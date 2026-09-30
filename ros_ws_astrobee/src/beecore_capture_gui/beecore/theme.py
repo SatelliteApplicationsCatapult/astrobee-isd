@@ -105,6 +105,17 @@ _CSS = Template('''
     @media (prefers-reduced-motion: reduce) { .rec-live { animation: none; } }
 
     :focus-visible { outline: 2px solid $violet; outline-offset: 2px; }
+
+    /* Quasar colour-prop class for PANTONE 485 C (max handle on the range
+       sliders): a prop value `brand-red` emits text-brand-red / bg-brand-red. */
+    .text-brand-red { color: $red !important; }
+    .bg-brand-red { background: $red !important; }
+    /* Red stop at the end of a slider's allowed track (inner-max), i.e. the
+       operator's max. The ::after sits on Quasar's inner-track element. */
+    .max-stop .q-slider__inner::after { content: ""; position: absolute;
+        right: -2px; top: -7px; width: 4px; height: 18px; border-radius: 2px;
+        background: $red; }
+    .max-stop .q-slider__marker-labels { font-weight: 600; font-size: 11px; }
 ''')
 
 
