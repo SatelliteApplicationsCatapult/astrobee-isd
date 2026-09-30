@@ -19,7 +19,7 @@
       <collision name="collision">
         <geometry>
           <mesh>
-            <uri>model://tools/ratchet-wrench-9.snapshot.1_coarse.STL</uri>
+            <uri>model://tools_old/ratchet-wrench-9.snapshot.1_coarse.STL</uri>
             <scale>0.001 0.001 0.001</scale>
           </mesh>
         </geometry>
@@ -27,7 +27,7 @@
       <visual name="visual">
         <geometry>
           <mesh>
-            <uri>model://tools/ratchet-wrench-9.snapshot.1_fine.STL</uri>
+            <uri>model://tools_old/ratchet-wrench-9.snapshot.1_fine.STL</uri>
             <scale>0.001 0.001 0.001</scale>
           </mesh>
         </geometry>
