@@ -41,6 +41,8 @@ def get_config(argv=None):
                    help="Folder containing one or more rosbags (organised as sub-folders)")
     p.add_argument('common_params_yaml',
                    help="YAML file containing common params")
+    p.add_argument('tools_folder',
+                   help="Folder containing one or more tools (organised as sub-folders)")
     # Optional
     p.add_argument('--rate-hz', type=float, default=30.0,
                    help="Common rate that all inputs will be interpolated against")
@@ -101,6 +103,7 @@ class BcFirstTest:
         # self.bag_folder = rospy.get_param('~bag_folder')                                              # Required, folder
         # self.common_params_yaml = rospy.get_param('~common_params_yaml')                              # Required, file
         # self.rate_hz = rospy.get_param('~rate_hz', 30.0)                                              # Hz
+        # self.tools_folder = rospy.get_param('~tools_folder')                                          # Required, folder
         # self.robot_name = rospy.get_param('~robot_name', 'honey')                                     # Robot name/namespace
         # self.pc_frame = rospy.get_param('~pc_frame', 'honey/perch_cam')                               # Pointcloud frame
         # self.model_states_topic = rospy.get_param('~model_states', "/gazebo/model_states")            # gazebo_msgs/ModelStates
@@ -114,6 +117,7 @@ class BcFirstTest:
         # Parameters
         self.bag_folder = args.bag_folder
         self.common_params_yaml = args.common_params_yaml
+        self.tools_folder = args.tools_folder
         self.rate_hz = args.rate_hz
         self.robot_name = args.robot_name
         self.pc_frame = args.pc_frame
@@ -130,8 +134,13 @@ class BcFirstTest:
                                    self.arm_state_topic,
                                    ]
 
-        self.tools_list = ["ratchet_wrench", "wrench_10mm"]
-
+        # Get list of tools
+        #self.tools_list = ["ratchet_wrench", "wrench_10mm"]
+        self.tools_list = []
+        for tool in os.listdir(self.tools_folder):
+            if os.path.isdir(os.path.join(self.tools_folder, tool)):
+                self.tools_list.append(tool)
+        logger.info("Found %d tools in %s", len(self.tools_list), self.tools_folder)
 
         # Load params
         params = rosparam.load_file(self.common_params_yaml)[0][0]
@@ -356,7 +365,7 @@ class BcFirstTest:
             bag.close()
 
         if not tool_name:
-            raise RuntimeError("No tool from %s appeared on %s in %s" % (self.tools_list, self.model_states_topic, os.path.basename(bag_path)))
+            raise RuntimeError("No tool from list appeared on %s in %s" % (self.model_states_topic, os.path.basename(bag_path)))
 
         for name, stamps in (('pc', pc_t), ('tool', tool_t), ('joy', joy_t), ('wrench', wrench_t), ('arm', arm_t)):
             if not stamps:
