@@ -167,7 +167,7 @@ Visualization Manager:
       Size (Pixels): 3
       Size (m): 0.009999999776482582
       Style: Spheres
-      Topic: /honey/pose_extraction_test/cloud_filtered
+      Topic: /honey/pose_extraction_test/cloud_filtered_viz
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
@@ -195,7 +195,7 @@ Visualization Manager:
       Size (Pixels): 3
       Size (m): 0.009999999776482582
       Style: Spheres
-      Topic: /honey/pose_extraction_test/cloud_linefit
+      Topic: /honey/pose_extraction_test/cloud_linefit_viz
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
@@ -213,12 +213,12 @@ Visualization Manager:
       Shaft Length: 1
       Shaft Radius: 0.05000000074505806
       Shape: Axes
-      Topic: /honey/pose_extraction_test/groundtruth_pose
+      Topic: /honey/pose_extraction_test/groundtruth_pose_viz
       Unreliable: false
       Value: true
     - Class: rviz/Marker
       Enabled: true
-      Marker Topic: /honey/pose_extraction_test/cylinder_shape
+      Marker Topic: /honey/pose_extraction_test/cylinder_shape_viz
       Name: Cylinder
       Namespaces:
         fitted_shapes: true
