@@ -555,6 +555,6 @@ class SimpleControlExample(object):
 
 
 if __name__ == "__main__":
-    rospy.init_node("node_template")
+    rospy.init_node("python_ros_node_joy_client")
     dmpc = SimpleControlExample()
     rospy.spin()

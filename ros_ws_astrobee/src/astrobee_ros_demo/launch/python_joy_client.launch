@@ -2,7 +2,7 @@
 <launch>
     <!-- Replace the robot namespace with the most suitable one -->
     <group ns="honey">
-        <node pkg="astrobee_ros_demo" type="python_ros_node_joy_client.py" name="template_iface" output="screen">
+        <node pkg="astrobee_ros_demo" type="python_ros_node_joy_client.py" name="python_ros_node_joy_client" output="screen">
             <!-- Topics -->
             <remap from="~pose_topic" to="loc/pose"/>
             <remap from="~twist_topic" to="loc/twist"/>
