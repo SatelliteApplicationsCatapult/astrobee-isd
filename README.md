@@ -187,7 +187,14 @@ python3 run_gui.py
 - Sometimes the pointcloud (PerchCam) sensor does not initialise correctly, and only displays a
   small spherical pointcloud at origin. If this happens, restart the simulation.
 - RViz uses a dummy fixed frame 'rviz_up' to display the Astrobee body upright, i.e. with perch arm
-  on top. The Gazebo simulation uses Z axis up, which is why the ISS looks upside-down. This is not easily changeable without making changes to the world/models, so is left as default.
+  on top. The Gazebo simulation uses Z axis up, which is why the ISS looks upside-down. This is not
+  easily changeable without making changes to the world/models, so is left as default.
 - It is recommended to leave 'Experiment ID' on the current value, as this will auto-increment on
   each recording. However it can be reset at any time if needed, e.g. due to a bad recording that
   does not need to be kept and gets manually deleted from disk.
+- If the joystick has not appeared in the container (/dev/input/js0 does not exist), then instead
+  of restarting the container, you can do the following:
+  ```bash
+  mknod /dev/input/js0 c 13 0
+  chmod 666 /dev/input/js0
+  ```
