@@ -21,7 +21,7 @@ class AstrobeeRecorder:
 
         self.ns = rospy.get_param("~ns", "honey")
         self.output_dir = rospy.get_param("~output_dir", "/tmp/astrobee_trials")
-        self.pointcloud_topic = rospy.get_param("~pointcloud_topic", "hw/depth_perch/points")
+        self.pointcloud_topic = rospy.get_param("~pointcloud_topic", "/honey/hw/depth_perch/points")
 
         self.is_recording = False
         self.bag_lock = threading.Lock()
