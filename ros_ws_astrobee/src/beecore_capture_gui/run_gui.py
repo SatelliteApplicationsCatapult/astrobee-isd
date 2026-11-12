@@ -30,7 +30,7 @@ from beecore.logbridge import log
 from beecore.naming import scan_next_experiment_id
 from beecore.recorder import BagRecorder
 from beecore.runners import RunnerSet
-from beecore.reset import ToolError, capture_home_if_unset, full_reset
+from beecore.reset import ToolError, capture_home, full_reset
 from beecore.ros_link import FaultStatePublisher, init_node
 from beecore.state import state
 from beecore.ui import viewer
@@ -142,9 +142,8 @@ def main() -> None:
                 time.sleep(2.0)
                 try:
                     camera.spawn_all()
-                    # The robot is up and at its start pose - the one moment
-                    # we can be sure "current pose" means "home".
-                    capture_home_if_unset(settings)
+                    # Robot is up: wherever it is now becomes home, every launch.
+                    capture_home(settings)
                     return
                 except FollowCamError as exc:
                     if attempt == 0:

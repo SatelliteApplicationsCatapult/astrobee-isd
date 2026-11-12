@@ -219,9 +219,8 @@ CENTRING_BIAS = 0.7
 #     rostopic pub /honey/mgt/sys_monitor/state ff_msgs/FaultState '{state: 0}' -1
 #
 # The home pose is not hard-coded here because it belongs to the world, not to
-# the GUI. It is captured from Gazebo the first time the GUI sees the robot,
-# saved to the config file, and re-capturable from the Experiment tab. No home
-# pose means the teleport is skipped - never a guessed one.
+# the GUI. It is captured from Gazebo every time the GUI starts and saved to the
+# config file. No home pose means the teleport is skipped - never a guessed one.
 HOME_SETTLE_S = 0.0         # deliberately zero for now
 
 # --- misc --------------------------------------------------------------------
@@ -250,7 +249,7 @@ class Settings:
     robot_ns: str = DEFAULT_NS
 
     # Where "Reset experiment" puts the robot: x y z qx qy qz qw, world frame.
-    # None until captured from the running simulation.
+    # Overwritten from the running simulation on every GUI start.
     home_pose: Optional[Dict[str, float]] = None
 
     # follow_cam: one entry per camera - live offset, saved "default" pose,

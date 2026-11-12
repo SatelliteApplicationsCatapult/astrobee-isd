@@ -12,11 +12,9 @@ they were wired in:
 
 THE HOME POSE
 -------------
-Not hard-coded. The robot always starts in the same place, but that place is a
-property of the world file, not of this GUI, and typing it in twice is how the
-two drift apart. Instead it is captured from Gazebo the first time the GUI sees
-the robot after launch, saved to the config file, and re-capturable from the
-Experiment tab.
+Not hard-coded. Captured from Gazebo every time the GUI starts, as soon as it
+sees the robot, and saved to the config file. Whatever pose the robot has at
+that moment becomes home - so start the GUI with the robot where you want it.
 
 If no home pose has been captured, the teleport is SKIPPED and logged. A
 guessed pose that flings the robot into a wall is worse than no teleport.
@@ -70,7 +68,8 @@ def describe_home(settings: Settings) -> str:
 
 
 def capture_home(settings: Settings) -> bool:
-    """Store the robot's current pose as home. Returns False if unreadable."""
+    """Store the robot's current pose as home. Called once at startup, after
+    the robot appears in Gazebo. Returns False if the pose is unreadable."""
     pose = model_pose(settings.ns)
     if pose is None:
         log.error('Could not read the pose of "%s" - home pose unchanged.',
@@ -82,22 +81,13 @@ def capture_home(settings: Settings) -> bool:
     return True
 
 
-def capture_home_if_unset(settings: Settings) -> None:
-    """Called once at startup, after the robot appears in Gazebo."""
-    if dict_to_pose(settings.home_pose or {}) is not None:
-        return
-    log.info('No home pose stored; taking the robot\'s current pose as home.')
-    capture_home(settings)
-
-
 # --- steps -------------------------------------------------------------------
 
 def reset_robot(settings: Settings) -> dict:
     """Teleport the robot home. Returns metadata; never raises."""
     pose = dict_to_pose(settings.home_pose or {})
     if pose is None:
-        log.warning('No home pose captured - skipping the robot teleport. '
-                    'Use "Set home to current pose" on the Experiment tab.')
+        log.warning('No home pose captured - skipping the robot teleport. Restart the GUI with the robot in place to capture one.')
         return {'moved': False, 'reason': 'no home pose captured'}
 
     xyz, quat = pose
@@ -142,5 +132,4 @@ def full_reset(settings: Settings, fault_pub) -> dict:
     return meta
 
 
-__all__ = ['ToolError', 'capture_home', 'capture_home_if_unset',
-           'describe_home', 'full_reset']
+__all__ = ['ToolError', 'capture_home', 'describe_home', 'full_reset']

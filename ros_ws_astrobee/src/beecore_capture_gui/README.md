@@ -281,10 +281,9 @@ to be needed.
 
 Not hard-coded. The robot always starts in the same place, but that place
 belongs to the world file, not to this GUI, and typing it in twice is how the
-two drift apart. It is captured from Gazebo the first time the GUI sees the
-robot after launch, saved to the config file, and re-capturable with **Set home
-to current pose** on the Experiment tab. The current value is shown under the
-reset button.
+two drift apart. It is captured from Gazebo every time the GUI starts, as soon
+as the robot appears, and saved to the config file. Start the GUI with the robot
+where you want home to be.
 
 **No home pose captured means the teleport is skipped**, logged, and said so in
 the confirm dialog. A guessed pose that puts the robot inside a wall is worse
