@@ -4,7 +4,7 @@
     <include file="$(find astrobee)/launch/sim.launch" >
         <arg name="dds" value="false"/>
         <arg name="rviz" value="false"/>
-        <arg name="sviz" value="false"/>
+        <arg name="sviz" value="true"/>
         <arg name="default_robot" value="false"/>
         <!-- Spawn Honey -->
         <arg name="honey" value="true"/>
