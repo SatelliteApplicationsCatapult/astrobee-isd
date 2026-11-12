@@ -3,7 +3,7 @@
 
     <arg name="ns" default="honey" />
     <arg name="output_dir" default="/tmp/astrobee_trials" />
-    <arg name="pointcloud_topic" default="hw/depth_perch/points" />
+    <arg name="pointcloud_topic" default="/honey/hw/depth_perch/points" />
 
     <group ns="/$(arg ns)">
         <node
