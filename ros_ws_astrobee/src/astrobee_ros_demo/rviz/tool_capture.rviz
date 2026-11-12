@@ -310,14 +310,14 @@ Visualization Manager:
       Arrow Width: 0.5
       Class: rviz/WrenchStamped
       Enabled: true
-      Force Arrow Scale: 1.5
+      Force Arrow Scale: 5.0
       Force Color: 0; 255; 0
       Hide Small Values: true
       History Length: 1
       Name: WrenchStamped
       Queue Size: 10
       Topic: /joy_wrench
-      Torque Arrow Scale: 20
+      Torque Arrow Scale: 50
       Torque Color: 170; 0; 255
       Unreliable: false
       Value: true
