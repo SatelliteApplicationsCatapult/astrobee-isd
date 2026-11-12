@@ -45,9 +45,9 @@ class AstrobeeJoyArmWrench:
         # Namespace
         self.ns = rospy.get_param("~ns", "honey")
 
-        # Max limits based on Astrobee's physical blower limits
-        self.max_force = rospy.get_param("/wrench_command/max_force", 0.8)
-        self.max_torque = rospy.get_param("/wrench_command/max_torque", 0.05)
+        # Max wrench values
+        self.max_force = rospy.get_param("/wrench_command/max_force", [0.6, 0.3, 0.3])
+        self.max_torque = rospy.get_param("/wrench_command/max_torque", [0.06, 0.03, 0.03])
 
         # Publishers to be used by another Astrobee client that processes these commands
         # WrenchStamped for body
@@ -81,9 +81,9 @@ class AstrobeeJoyArmWrench:
             cmd.header.frame_id = "body"
 
         # Map analog sticks to linear forces (N)
-        cmd.wrench.force.x = axes[AXIS_FORCE_X] * self.max_force
-        cmd.wrench.force.y = - axes[AXIS_FORCE_Y] * self.max_force
-        cmd.wrench.force.z = - ((1 - axes[AXIS_FORCE_Z_POS])/2.0 - (1 - axes[AXIS_FORCE_Z_NEG])/2.0) * self.max_force
+        cmd.wrench.force.x = axes[AXIS_FORCE_X] * self.max_force[0]
+        cmd.wrench.force.y = - axes[AXIS_FORCE_Y] * self.max_force[1]
+        cmd.wrench.force.z = - ((1 - axes[AXIS_FORCE_Z_POS])/2.0 - (1 - axes[AXIS_FORCE_Z_NEG])/2.0) * self.max_force[2]
 
         # Map analog sticks and shoulder buttons to torques (Nm)
         cmd.wrench.torque.x = - (buttons[BTN_TORQUE_X_POS] - buttons[BTN_TORQUE_X_NEG]) * self.max_torque  # Roll

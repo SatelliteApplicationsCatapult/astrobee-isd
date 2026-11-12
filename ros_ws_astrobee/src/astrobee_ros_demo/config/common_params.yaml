@@ -1,7 +1,13 @@
 # Joystick inputs
+
+# Max wrench command values
+# Based off ReSWARM paper: arxiv.org/pdf/2301.01319
+# Using conservative values near the 2500 RPM motor speeds, even though it should be able to
+# go faster (in ff_msgs/msg/FlightMode.msg, impeller speed max should correspond to 2800 RPM?)
+# Torques set to 1/10 of forces, as rough estimate noted also in paper
 wrench_command:
-  max_force: 0.8    # N
-  max_torque: 0.05  # Nm
+  max_force: [0.6, 0.3, 0.3]      # N
+  max_torque: [0.06, 0.03, 0.03]  # Nm
 
 # Values reported by Gazebo sim
 # gz model -m honey -i | grep -E "name:|mass:" | grep -B1 "mass:"

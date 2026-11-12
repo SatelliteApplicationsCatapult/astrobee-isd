@@ -144,8 +144,10 @@ class BcFirstTest:
 
         # Load params
         params = rosparam.load_file(self.common_params_yaml)[0][0]
-        self.max_force  = params['wrench_command']['max_force']
-        self.max_torque = params['wrench_command']['max_torque']
+
+        # Max wrench values
+        self.max_force  = np.array(params['wrench_command']['max_force'])
+        self.max_torque = np.array(params['wrench_command']['max_torque'])
 
         # Static transform from robot body to perch cam
         tf_params = params['robot_sim']['robot_in_perch_tf']
@@ -153,9 +155,8 @@ class BcFirstTest:
                     Pose(position=Point(*tf_params['position']),
                          orientation=Quaternion(*tf_params['orientation'])))
 
-
-        # Set action scaling param
-        self.act_scale = np.array([self.max_force] * 3 + [self.max_torque] * 3 + [1.0], dtype=np.float32)
+        # Set action scaling params
+        self.act_scale = np.concatenate([self.max_force, self.max_torque, [1.0]]).astype(np.float32)
 
         # Labels
         self.obs_names = ['px', 'py', 'pz',

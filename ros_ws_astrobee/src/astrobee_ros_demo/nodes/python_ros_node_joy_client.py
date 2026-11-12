@@ -42,8 +42,8 @@ class SimpleControlExample(object):
             self.joint_sample_topic = "/beh/arm/joint_sample"
 
         # Initialise parameters from file
-        self.max_force = rospy.get_param("/wrench_command/max_force", 0.8)
-        self.max_torque = rospy.get_param("/wrench_command/max_torque", 0.05)
+        self.max_force = np.array(rospy.get_param("/wrench_command/max_force", [0.6, 0.3, 0.3]))
+        self.max_torque = np.array(rospy.get_param("/wrench_command/max_torque", [0.06, 0.03, 0.03]))
         self.mass = rospy.get_param("/robot_sim/mass", 9.7756)
         self.inertia = np.array(rospy.get_param("/robot_sim/inertia", [0.1737, 0.1649, 0.1865]))
         self.lin_vel_decay_time = rospy.get_param("/flight_assist/lin_vel_decay_time", 1.0)

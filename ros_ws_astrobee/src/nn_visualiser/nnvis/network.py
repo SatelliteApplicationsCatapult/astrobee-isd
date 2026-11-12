@@ -156,7 +156,7 @@ class Network:
         A trained policy was fitted against actions divided by act_scale, so
         its raw output is roughly +/-1 per channel while the recorded wrench
         is in newtons and newton-metres.  Plotting one against the other
-        without this multiply makes every torque channel look 16x wrong.
+        without this multiply makes every channel wrong by its own act_scale.
         """
         if self.act_scale is None:
             return y

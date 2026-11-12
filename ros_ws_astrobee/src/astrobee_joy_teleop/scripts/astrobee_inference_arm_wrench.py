@@ -26,9 +26,9 @@ class AstrobeeInferenceArmWrench:
         # Namespace
         self.ns = rospy.get_param("~ns", "honey")
 
-        # Max limits based on Astrobee's physical blower limits
-        self.max_force = rospy.get_param("/wrench_command/max_force", 0.8)
-        self.max_torque = rospy.get_param("/wrench_command/max_torque", 0.05)
+        # Max limits - Not used here
+        #self.max_force = rospy.get_param("/wrench_command/max_force", [0.6, 0.3, 0.3])
+        #self.max_torque = rospy.get_param("/wrench_command/max_torque", [0.06, 0.03, 0.03])
 
         # Publishers to be used by another Astrobee client that processes these commands
         # WrenchStamped for body
@@ -55,8 +55,6 @@ class AstrobeeInferenceArmWrench:
 
         # Load params
         params = rosparam.load_file(self.common_params_yaml)[0][0]
-        self.max_force  = params['wrench_command']['max_force']
-        self.max_torque = params['wrench_command']['max_torque']
 
         # Static transform from robot body to perch cam
         tf_params = params['robot_sim']['robot_in_perch_tf']

@@ -156,8 +156,10 @@ every edge and skips the ribbon substrate entirely; pooling a 32×32 gap into
 obscure edges that were perfectly legible. A trained `FeedForward32Policy` is
 1,824 connections total, so it draws in full.
 
-Output channels are scaled **per channel** — force saturates at 0.8 N and
-torque at 0.05 Nm, so one shared scale renders every torque channel flat grey.
+Output channels are scaled **per channel** — the wrench limits are per axis,
+and torque limits are an order of magnitude below force, so one shared scale
+renders every torque channel flat grey. Each scale is taken from the data: the
+larger of the recorded maximum and the predicted 99th percentile.
 
 **The printed number and the colour are different quantities**, and every
 channel prints its own denominator so they can't be confused. In the
@@ -165,12 +167,12 @@ observation column the colour is `(value − mean) / 3σ`, i.e. "how unusual is
 this for this channel", while the number is metres or rad/s — so `pz = 0.01`
 saturates (3σ below its mean) while `qz = 0.01` stays grey (sitting at its
 mean). The `σ` caption is the missing denominator. In the action columns the
-`±` caption plays the same role: without it, the same printed 0.01 is 6×
+`±` caption plays the same role: without it, the same printed 0.01 is far
 brighter on a torque channel than a force one.
 
 Decimal places are per channel, ~3 significant figures across each channel's
-range. `toFixed(2)` on a torque channel whose full range is 0.05 Nm leaves
-five printable levels across the whole range.
+range. `toFixed(2)` on a torque channel whose full range is a few hundredths
+of a Nm leaves only a handful of printable levels across the whole range.
 
 ## The two network sources
 
@@ -302,8 +304,6 @@ Verified for the trained-policy path:
   pass done separately and denormalised — **max abs error 0.00e+00**. Read
   back out of the payload rather than assumed, because a patch script that
   cannot fail is a patch script that cannot be trusted.
-- Predicted torque lands near 0.05 Nm and force near 0.8 N, i.e. physical
-  units, confirming the `act_scale` multiply is applied.
 - Renderer at `18-32-32-7` with all three gaps dense: **1.9 ms/frame**, 1,775
   strokes (every connection above the floor), 96 neurons, headers reading
   `OBSERVATION | HIDDEN 32 | HIDDEN 32 | PREDICTED | ACTUAL`. The stand-in at

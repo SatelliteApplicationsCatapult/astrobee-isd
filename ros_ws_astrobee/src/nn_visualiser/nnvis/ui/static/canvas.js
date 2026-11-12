@@ -303,9 +303,10 @@
       ctx.fillText(raw[i].toFixed(m.in_dp[i]), x, y + 7);
     }
 
-    // Action columns.  Force full-scale is 0.8 N and torque 0.05 Nm, so the
-    // same printed number is ~6x brighter on a torque channel than a force
-    // one.  The +/- caption is the denominator that explains it.
+    // Action columns.  Each channel has its own full-scale (per-axis limits,
+    // torque far below force), so the same printed number can be much
+    // brighter on one channel than another.  The +/- caption is the
+    // denominator that explains it.
     const mx = (L.cols[LAST].x + L.actual.x) / 2;
     ctx.textAlign = 'center';
     for (let i = 0; i < m.sizes[LAST]; i++) {

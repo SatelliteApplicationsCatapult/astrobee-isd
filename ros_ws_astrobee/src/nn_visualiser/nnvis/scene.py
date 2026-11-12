@@ -23,8 +23,8 @@ from .network import Network
 def _dp(scale):
     """Decimal places giving ~3 significant figures across a channel's range.
 
-    toFixed(2) on a torque channel whose full range is 0.05 Nm leaves five
-    printable levels across the whole range -- a displayed 0.01 could be
+    toFixed(2) on a torque channel whose full range is a few hundredths of a
+    Nm leaves only a handful of printable levels -- a displayed 0.01 could be
     anything from 0.005 to 0.0149.
     """
     return int(min(4, max(2, 2 - math.floor(math.log10(max(scale, 1e-9))))))
@@ -115,9 +115,9 @@ def build(path, robot, tool, policy_path=None, stats_path=None, log=print):
         else:
             scales.append(float(max(np.percentile(np.abs(acts[k + 1]), 97), 1e-6)))
 
-    # Actions get a scale PER CHANNEL.  Force saturates at 0.8 N and torque at
-    # 0.05 Nm in the test bags: one shared scale would render every torque
-    # channel as flat grey.  Predicted and actual share the scale so the two
+    # Actions get a scale PER CHANNEL.  The wrench limits are per axis, and
+    # torque limits are an order of magnitude below force: one shared scale
+    # would render every torque channel as flat grey.  Predicted and actual share the scale so the two
     # columns stay directly comparable.  The predicted column is included in
     # the max because a policy is free to overshoot the recorded envelope.
     out_scales = np.maximum(np.abs(act).max(0),
@@ -154,8 +154,9 @@ def build(path, robot, tool, policy_path=None, stats_path=None, log=print):
     # ---- captions -------------------------------------------------------
     # The printed number is in physical units; the colour is that number
     # divided by the channel's own scale.  Those are different quantities and
-    # the scales differ by 16x between force and torque, so the denominator is
-    # printed next to every channel rather than left implicit.
+    # the scales differ by an order of magnitude between force and torque, so
+    # the denominator is printed next to every channel rather than left
+    # implicit.
     in_caption = [u'\u03c3%.3g' % v for v in std]
     out_caption = [u'%s%.3g' % ('' if i == net.sizes[-1] - 1 else u'\u00b1', v)
                    for i, v in enumerate(out_scales)]
