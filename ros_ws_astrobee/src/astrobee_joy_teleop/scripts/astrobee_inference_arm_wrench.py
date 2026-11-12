@@ -26,9 +26,12 @@ class AstrobeeInferenceArmWrench:
         # Namespace
         self.ns = rospy.get_param("~ns", "honey")
 
-        # Max limits - Not used here
-        #self.max_force = rospy.get_param("/wrench_command/max_force", [0.6, 0.3, 0.3])
-        #self.max_torque = rospy.get_param("/wrench_command/max_torque", [0.06, 0.03, 0.03])
+        # ONNX model path
+        self.onnx_model_path = rospy.get_param("~onnx_model_path", "policy.onnx")
+
+
+
+
 
         # Publishers to be used by another Astrobee client that processes these commands
         # WrenchStamped for body
@@ -72,7 +75,7 @@ class AstrobeeInferenceArmWrench:
         self.load_model()
 
 
-        rate = 30.0
+        rate = 5.0
         rospy.Timer(rospy.Duration(1/rate), self.timer_callback)
 
 
@@ -92,6 +95,7 @@ class AstrobeeInferenceArmWrench:
             robot_idx = model_names.index(self.robot_name)
             # print("Robot index:", robot_idx)
         else:
+            print("Robot not found!")
             return
 
 
@@ -99,6 +103,7 @@ class AstrobeeInferenceArmWrench:
             tool_idx = model_names.index(self.tool_name)
             # print("Tool index:", tool_idx)
         else:
+            print("Tool not found!")
             return
 
 
@@ -156,8 +161,8 @@ class AstrobeeInferenceArmWrench:
 
         # Load ONNX Runtime inference session
         # Strictly, this is the only thing needed for inference
-        onnx_path = "/src/astrobee-isd/data/training/il_first_data/bc_policy/policy.onnx"
-        self.ort_sess = ort.InferenceSession(onnx_path)
+        #onnx_path = "/src/astrobee-isd/data/training/il_first_data/bc_policy/policy.onnx"
+        self.ort_sess = ort.InferenceSession(self.onnx_model_path)
 
         # Load model, if you want to extract saved metadata
         # m = onnx.load(onnx_path)
