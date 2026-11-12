@@ -90,9 +90,9 @@ class AstrobeeJoyArmWrench:
         cmd.wrench.force.z = - ((1 - axes[AXIS_FORCE_Z_POS])/2.0 - (1 - axes[AXIS_FORCE_Z_NEG])/2.0) * self.max_force[2]
 
         # Map analog sticks and shoulder buttons to torques (Nm)
-        cmd.wrench.torque.x = - (buttons[BTN_TORQUE_X_POS] - buttons[BTN_TORQUE_X_NEG]) * self.max_torque  # Roll
-        cmd.wrench.torque.y = axes[AXIS_TORQUE_Y] * self.max_torque                                        # Pitch
-        cmd.wrench.torque.z = - axes[AXIS_TORQUE_Z] * self.max_torque                                      # Yaw
+        cmd.wrench.torque.x = - (buttons[BTN_TORQUE_X_POS] - buttons[BTN_TORQUE_X_NEG]) * self.max_torque[0]  # Roll
+        cmd.wrench.torque.y = axes[AXIS_TORQUE_Y] * self.max_torque[1]                                        # Pitch
+        cmd.wrench.torque.z = - axes[AXIS_TORQUE_Z] * self.max_torque[2]                                      # Yaw
 
         # Invert pitch if desired
         cmd.wrench.torque.y *= Y_AXIS_DIRECTION
