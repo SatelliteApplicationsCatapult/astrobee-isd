@@ -45,7 +45,11 @@ class AstrobeeJoyArmWrench:
         # Namespace
         self.ns = rospy.get_param("~ns", "honey")
 
-        # Max wrench values
+        # Max wrench values - Read from param server, as they should already be loaded (see astrobee_joy_test_sim.launch)
+        if not rospy.has_param("/wrench_command/max_force"):
+            rospy.logwarn("/wrench_command/max_force not set, using default")
+        if not rospy.has_param("/wrench_command/max_torque"):
+            rospy.logwarn("/wrench_command/max_torque not set, using default")
         self.max_force = rospy.get_param("/wrench_command/max_force", [0.6, 0.3, 0.3])
         self.max_torque = rospy.get_param("/wrench_command/max_torque", [0.06, 0.03, 0.03])
 
