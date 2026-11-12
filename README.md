@@ -109,3 +109,85 @@ $ANDROID_PATH/scripts/gs_manager.sh restart
 cd $SOURCE_PATH/tools/gds_helper/src
 python gds_simulator.py
 ```
+
+<br>
+
+
+# How to run the training environment - Clean start from reboot
+
+## Terminal Setup
+```bash
+# Initialise container
+XAUTH=/tmp/.docker.xauth && touch $XAUTH && xauth nlist $DISPLAY | sed -e 's/^..../ffff/' | xauth -f $XAUTH nmerge -
+xhost +local:docker
+docker start astrobee
+
+# Terminal 1 - Emulator
+docker exec -it astrobee bash
+cd $ANDROID_PATH/scripts
+./launch_emulator.sh
+
+# Terminal 2 - Simulation
+docker exec -it astrobee bash
+roslaunch astrobee_ros_demo astrobee_joy_test_sim.launch
+
+# Terminal 3 - GUI
+docker exec -it astrobee bash
+cd $CUSTOM_WS/ros_ws_astrobee/src/beecore_capture_gui/
+python3 run_gui.py
+```
+
+## GUI Preparation
+- Wait for the simulation to initialise
+    - Some warning/errors in the command about heartbeat and nodelet can be ignored
+    - Confirm that in RViz the pointcloud data is displaying correctly
+- Open browser windows
+    - http://localhost:8090/
+    - http://localhost:8090/view
+- Check that gamepad (joystick) USB receiver is plugged in
+- Press Start on gamepad to wake it up
+- In BEECORE Capture GUI:
+    - Switch to 'Experiment Control' tab
+    - Enable 'Control Services' in order:
+        - Joystick Node
+        - Joystick Command Converter
+        - Custom FAM Control
+    - Using the gamepad and observing the RViz window, visually confirm that the force/torque
+      commands (green/purple arrows) are coming through, but the robot does not yet move
+    - Press the 'Clear Astrobee Fault State' button, so that the flag 'ff_msgs/FaultState' reads
+      '0 = STARTING_UP'
+    - Now toggle the activation call to the control node:
+        -  Custom FAM Control Start
+    - At this stage, all feedback LEDs on the right-side panel of the GUI should be green
+    - Confirm the robot now moves in response to gamepad inputs
+- Now the system is ready for multiple experimental runs to take place
+
+## Experiment Run Preparation
+- Set the desired tool initial conditions under the 'Tool Spawn' section
+- Set rosbag suffix to a desired name (the ID and timestamp will increment automatically, to ensure
+  folder name uniqueness)
+- Under the 'Camera Control' tab, the four camera views can be adjusted if necessary, but it is
+  recommended they are kept as default
+- Under the 'Topics' tab, any currently available topics can be selected for recording
+- Under the 'Other' tab, other settings can be adjusted, but again it is recommended they are kept
+  as default
+- Repeat these steps as rewuireg
+
+## Recording a Run
+- On the 'Experiment Control' tab, press the 'Reset Experiment' button
+    - This repositions the robot and spawns the selected tool with set initial conditions
+- Press 'Start Recording'
+- Once the experimental run has been completed, manually determine if the capture was a success or
+  failure. An option must be set before the 'Stop Recording' button can be pressed
+- Press 'Stop Recording' to end the recording
+- The rosbag will now be saved under the stated folder
+- Repeat these steps as rewuireg
+
+## Notes
+- Sometimes the pointcloud (PerchCam) sensor does not initialise correctly, and only displays a
+  small spherical pointcloud at origin. If this happens, restart the simulation.
+- RViz uses a dummy fixed frame 'rviz_up' to display the Astrobee body upright, i.e. with perch arm
+  on top. The Gazebo simulation uses Z axis up, which is why the ISS looks upside-down. This is not easily changeable without making changes to the world/models, so is left as default.
+- It is recommended to leave 'Experiment ID' on the current value, as this will auto-increment on
+  each recording. However it can be reset at any time if needed, e.g. due to a bad recording that
+  does not need to be kept and gets manually deleted from disk.
