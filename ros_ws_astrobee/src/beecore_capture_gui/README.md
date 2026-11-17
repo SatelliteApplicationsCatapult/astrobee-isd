@@ -317,7 +317,7 @@ the tool's mass or inertia.
 - Each magnitude has one slider (the value used) and a **Max** box. The
   track is lighter up to the max and ends in a red stop; the handle cannot
   pass it. Caps are
-  `SPEED_CAP_M_S` (0.5) and `SPIN_CAP_DEG_S` (360) in `config.py`.
+  `SPEED_CAP_M_S` (0.2) and `SPIN_CAP_DEG_S` (90) in `config.py`.
 - **Randomise** flips a coin for each of the six axes (never all off), draws
   both values in `[0, max]`, and picks a random tool and colour variant if
   **Randomise tool** is ticked. It never moves the maxima.

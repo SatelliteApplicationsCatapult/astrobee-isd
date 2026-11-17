@@ -184,7 +184,7 @@ def randomise(settings: Settings, rng: random.Random = random) -> None:
             break
     settings.force_axes, settings.torque_axes = force, torque
     settings.speed_m_s = round(rng.uniform(0.0, settings.speed_max_m_s), 3)
-    settings.spin_deg_s = round(rng.uniform(0.0, settings.spin_max_deg_s), 1)
+    settings.spin_deg_s = round(rng.uniform(0.0, settings.spin_max_deg_s), 2)
     names = list_tools(settings.models_dir)
     if settings.random_tool and names:
         settings.tool_name = rng.choice(names)

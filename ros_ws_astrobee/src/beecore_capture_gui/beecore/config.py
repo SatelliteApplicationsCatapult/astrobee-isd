@@ -200,8 +200,8 @@ PERCH_CAM_QUAT = (0.0, -0.707, 0.0, 0.707)      # x y z w
 # after spawning - no force/torque impulse, so the result does not depend on
 # the tool's mass or inertia. Per-axis caps (the right-hand slider handle can
 # not go past these):
-SPEED_CAP_M_S = 0.5         # linear, per perch_cam axis
-SPIN_CAP_DEG_S = 360.0      # angular, per tool body axis (about the CoM)
+SPEED_CAP_M_S = 0.2         # linear, per perch_cam axis
+SPIN_CAP_DEG_S = 90.0       # angular, per tool body axis (about the CoM)
 
 # How hard off-axis spawns are pushed back toward the perch_cam boresight: the
 # X/Y velocity sign points inward with probability 0.5 + 0.5*bias*|offset|,

@@ -251,7 +251,7 @@ class ExperimentTab:
 
             ui.label('Magnitude per axis').classes('eyebrow mt-3')
             self.sliders = {}
-            for key, label, cap, step, fmt in (('speed', 'Speed m/s', SPEED_CAP_M_S, 0.01, '%.2f'), ('spin', 'Spin deg/s', SPIN_CAP_DEG_S, 1.0, '%.0f')):
+            for key, label, cap, step, fmt in (('speed', 'Speed m/s', SPEED_CAP_M_S, 0.001, '%.3f'), ('spin', 'Spin deg/s', SPIN_CAP_DEG_S, 0.01, '%.2f')):
                 with ui.row().classes('items-center gap-3 w-full no-wrap mt-5'):
                     ui.label(label).classes('text-sm w-24')
                     slider = ui.slider(min=0.0, max=cap, step=step, value=min(self._value(key), self._max(key)),
@@ -329,7 +329,7 @@ class ExperimentTab:
             tool = '"{}"'.format(tools.tool_label(settings.tool_name or '?'))
             steps = ['Clear the system monitor fault state',
                      'Remove any spawned tool, then spawn {} ({}) in front of the perch cam with a random pose, '
-                     'moving at {:.2f} m/s and {:.0f} deg/s on the ticked axes'.format(
+                     'moving at {:.3f} m/s and {:.2f} deg/s on the ticked axes'.format(
                          tool, 'bright' if settings.tool_bright else 'original', settings.speed_m_s, settings.spin_deg_s)]
             if settings.home_pose:
                 steps.insert(0, 'Return the robot to its home pose')
@@ -458,12 +458,12 @@ class ExperimentTab:
         for key, slider in self.sliders.items():
             slider.set_value(self._value(key))
         self._reload_tools()
-        log.info('Randomised: %s (%s), linear %s at %.3f m/s, angular %s at %.1f deg/s', settings.tool_name, 'bright' if settings.tool_bright else 'original',
+        log.info('Randomised: %s (%s), linear %s at %.3f m/s, angular %s at %.2f deg/s', settings.tool_name, 'bright' if settings.tool_bright else 'original',
                  ''.join(a for a, on in settings.force_axes.items() if on) or '-', settings.speed_m_s,
                  ''.join(a for a, on in settings.torque_axes.items() if on) or '-', settings.spin_deg_s)
 
     def _update_motion_hint(self) -> None:
-        self.motion_hint.set_text('Each ticked axis: \u00b1{:.2f} m/s, \u00b1{:.0f} deg/s (random sign).'.format(settings.speed_m_s, settings.spin_deg_s))
+        self.motion_hint.set_text('Each ticked axis: \u00b1{:.3f} m/s, \u00b1{:.2f} deg/s (random sign).'.format(settings.speed_m_s, settings.spin_deg_s))
 
     def _on_axis(self, group: str, axis: str, value: bool) -> None:
         getattr(settings, group)[axis] = bool(value)
