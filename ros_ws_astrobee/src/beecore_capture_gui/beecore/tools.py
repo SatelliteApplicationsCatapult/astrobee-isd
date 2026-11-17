@@ -32,6 +32,8 @@ is independent of the tool's mass and inertia.
 
 The velocity is READ BACK from /gazebo/model_states and logged next to the
 requested one, so a set that did not land shows up as a number.
+In metadata, reset.speed_mm_s / spin_deg_s are the per-axis slider values; measured.speed_norm_mm_s /
+spin_norm_deg_s are the magnitudes of the whole vector (so 20.3 on two axes reads back as 28.7).
 """
 
 import math
@@ -269,8 +271,8 @@ def _measure(model: str) -> dict:
         return {}
     linear, angular = velocity
     return {
-        'speed_mm_s': round(_norm(linear) * 1000.0, 1),
-        'spin_deg_s': round(math.degrees(_norm(angular)), 2),
+        'speed_norm_mm_s': round(_norm(linear) * 1000.0, 1),
+        'spin_norm_deg_s': round(math.degrees(_norm(angular)), 2),
         'linear_world_m_s': [round(v, 4) for v in linear],
         'angular_world_rad_s': [round(v, 4) for v in angular],
     }
@@ -291,8 +293,8 @@ def set_tool_motion(settings: Settings, model: str, xyz: Vec3, quat: Quat, cam_q
         log.warning('set_model_state failed for %s: %s', model, message)
 
     measured = _measure(model)
-    log.info('Tool motion: requested %.1f mm/s, %.1f deg/s | measured %s mm/s, %s deg/s',
-             _norm(linear_world) * 1000.0, math.degrees(_norm(angular_world)), measured.get('speed_mm_s', '?'), measured.get('spin_deg_s', '?'))
+    log.info('Tool motion: requested magnitude %.1f mm/s, %.1f deg/s | measured magnitude %s mm/s, %s deg/s',
+             _norm(linear_world) * 1000.0, math.degrees(_norm(angular_world)), measured.get('speed_norm_mm_s', '?'), measured.get('spin_norm_deg_s', '?'))
 
     return {
         'linear_perchcam_m_s': [round(v, 4) for v in linear_cam],
