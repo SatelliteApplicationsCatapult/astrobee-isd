@@ -1,5 +1,12 @@
 # Joystick inputs
 
+rates:
+  # Joystick autorepeat_rate is 20 Hz, via rosrun
+  # dock_cam_rate is 15.0, set in ASTROBEE_WS/src/astrobee/config/simulation/simulation.config
+  # perch_cam_rate is 5.0, set in ASTROBEE_WS/src/astrobee/config/simulation/simulation.config
+  # Define custom controller rate here:
+  controller_rate: 5.0  # Hz
+
 # Max wrench command values
 # Based off ReSWARM paper: arxiv.org/pdf/2301.01319
 # Using conservative values near the 2500 RPM motor speeds, even though it should be able to

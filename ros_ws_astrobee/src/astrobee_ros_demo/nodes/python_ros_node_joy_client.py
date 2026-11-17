@@ -19,7 +19,7 @@ PAN_LIMITS_DEG     = (-90.0, 90.0)     # See arm_nodelet.cc for limits - When vi
 STEP_DEG           = 1.0               # Degrees per D-pad step
 
 
-class SimpleControlExample(object):
+class BeecoreController(object):
     """
     Class implementing a custom controller that sends body/arm commands to the NASA Astrobee.
     """
@@ -42,6 +42,7 @@ class SimpleControlExample(object):
             self.joint_sample_topic = "/beh/arm/joint_sample"
 
         # Initialise parameters from file
+        self.controller_rate = rospy.get_param("/rates/controller_rate", 5.0)
         self.max_force = np.array(rospy.get_param("/wrench_command/max_force", [0.6, 0.3, 0.3]))
         self.max_torque = np.array(rospy.get_param("/wrench_command/max_torque", [0.06, 0.03, 0.03]))
         self.mass = rospy.get_param("/robot_sim/mass", 9.7756)
@@ -51,7 +52,8 @@ class SimpleControlExample(object):
 
         # Initialise basic parameters
         self.dt = 1
-        self.rate = rospy.Rate(5)
+        #self.rate = rospy.Rate(5)
+        self.rate = rospy.Rate(self.controller_rate)
         self.start = False
         self.state = np.zeros((13, 1))
         self.state[9] = 1
@@ -511,7 +513,7 @@ class SimpleControlExample(object):
             # Only do something when started
             if self.start is False:
                 self.rate.sleep()
-                rospy.loginfo("Sleeping...")
+                #rospy.loginfo("Sleeping...")
                 continue
 
             # Use self.pose, self.twist to generate a control input
@@ -541,8 +543,8 @@ class SimpleControlExample(object):
                 self.u_traj = self.joy_wrench + self.damping_wrench()
 
 
-            tout = rospy.get_time() - tin
-            rospy.loginfo("Time for control: " + str(tout))
+            #tout = rospy.get_time() - tin
+            #rospy.loginfo("Time for control: " + str(tout))
 
             # Create control input message
             u = self.create_control_message()
@@ -556,5 +558,5 @@ class SimpleControlExample(object):
 
 if __name__ == "__main__":
     rospy.init_node("python_ros_node_joy_client")
-    dmpc = SimpleControlExample()
+    dmpc = BeecoreController()
     rospy.spin()
