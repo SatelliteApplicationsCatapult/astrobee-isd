@@ -250,6 +250,7 @@ class ExperimentTab:
 
             ui.label('Magnitude per axis').classes('eyebrow mt-3')
             self.sliders = {}
+            self._fmt = {}
             for key, label, cap, step, fmt in (('speed', 'Speed mm/s', SPEED_CAP_MM_S, 0.1, '%.1f'), ('spin', 'Spin deg/s', SPIN_CAP_DEG_S, 0.1, '%.1f')):
                 with ui.row().classes('items-center gap-3 w-full no-wrap mt-5'):
                     ui.label(label).classes('text-sm w-24 shrink-0')
@@ -262,7 +263,12 @@ class ExperimentTab:
                     for event in ('blur', 'keydown.enter'):
                         value_box.on(event, lambda _, b=value_box: self._on_value_done(b))
                         max_box.on(event, lambda _, b=max_box, k=key: self._on_max_done(k, b))
+                    # NiceGUI applies `format` only on blur; Enter and the arrows leave the browser's raw text ("80" not "80.0")
+                    for box in (value_box, max_box):
+                        box.on('change', box.sanitize)
                 self.sliders[key] = slider
+                self._fmt[key] = fmt
+                slider.props('label-value={}'.format(fmt % slider.value))   # the bubble has no format of its own
                 self._set_stop(key)
             with ui.grid(columns=2).classes('gap-x-6 gap-y-1 mt-3'):
                 for attr, label in (('random_tool', 'Randomise tool'), ('random_colour', 'Randomise colour'),
@@ -453,6 +459,7 @@ class ExperimentTab:
         if clamped != float(value):         # typed outside [0, max] in the Value box
             self.sliders[key].set_value(clamped)
             return
+        self.sliders[key].props('label-value={}'.format(self._fmt[key] % clamped))
         setattr(settings, self._FIELDS[key][0], clamped)
         settings.save()
         self._update_motion_hint()
