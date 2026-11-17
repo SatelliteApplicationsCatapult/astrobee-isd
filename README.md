@@ -139,7 +139,7 @@ python3 run_gui.py
 
 ## GUI Preparation
 - Wait for the simulation to initialise
-    - Some warning/errors in the command about heartbeat and nodelet can be ignored
+    - Some warning/errors in the CLI about heartbeat and nodelet can be ignored
     - Confirm that in RViz the pointcloud data is displaying correctly
 - Open browser windows
     - http://localhost:8090/
@@ -171,7 +171,7 @@ python3 run_gui.py
 - Under the 'Topics' tab, any currently available topics can be selected for recording
 - Under the 'Other' tab, other settings can be adjusted, but again it is recommended they are kept
   as default
-- Repeat these steps as rewuireg
+- Repeat these steps as required
 
 ## Recording a Run
 - On the 'Experiment Control' tab, press the 'Reset Experiment' button
@@ -181,7 +181,7 @@ python3 run_gui.py
   failure. An option must be set before the 'Stop Recording' button can be pressed
 - Press 'Stop Recording' to end the recording
 - The rosbag will now be saved under the stated folder
-- Repeat these steps as rewuireg
+- Repeat these steps as required
 
 ## Notes
 - Sometimes the pointcloud (PerchCam) sensor does not initialise correctly, and only displays a
