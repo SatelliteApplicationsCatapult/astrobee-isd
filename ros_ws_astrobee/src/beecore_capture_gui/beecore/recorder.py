@@ -101,6 +101,15 @@ class BagRecorder:
         bag_path = os.path.join(bag_dir, folder + '.bag')
         cmd = self._command(bag_path)
 
+        # Snapshot of the parameter server. Gains and flight-assist settings are not on any topic, so without this
+        # two bags recorded with different settings look identical. A failure is logged, not fatal.
+        params_path = os.path.join(bag_dir, 'params.yaml')
+        try:
+            subprocess.run(['rosparam', 'dump', params_path], check=True, timeout=10.0, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            log.info('Wrote %s', params_path)
+        except (OSError, subprocess.SubprocessError) as exc:
+            log.error('rosparam dump failed, no params.yaml for this run: %s', exc)
+
         try:
             # setsid: rosbag record spawns children. We must signal the whole
             # process group, or SIGINT leaves a half-written .bag.active.
