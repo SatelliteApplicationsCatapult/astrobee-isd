@@ -314,10 +314,11 @@ the tool's mass or inertia.
   linear signs point back toward the boresight with probability
   `0.5 + 0.5·CENTRING_BIAS·|offset|`, so edge spawns do not drift straight
   out of view.
-- Each magnitude has one slider (the value used) and a **Max** box. The
+- Each magnitude has one slider (the value used), a **Value** box bound to
+  it for typing exact values, and a **Max** box. The
   track is lighter up to the max and ends in a red stop; the handle cannot
   pass it. Caps are
-  `SPEED_CAP_M_S` (0.2) and `SPIN_CAP_DEG_S` (90) in `config.py`.
+  `SPEED_CAP_MM_S` (200 mm/s) and `SPIN_CAP_DEG_S` (90 deg/s) in `config.py`.
 - **Randomise** changes only what its six tick boxes allow: tool, colour,
   linear axes, angular axes, speed, spin. Unticked items keep their current
   value. Axes are a coin flip each, redrawn while all six are off. Speed and

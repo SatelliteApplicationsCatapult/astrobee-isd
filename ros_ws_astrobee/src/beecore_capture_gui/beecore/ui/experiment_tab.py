@@ -15,7 +15,7 @@ import threading
 from nicegui import ui
 
 from ..config import (FAULT_STATES, OUTCOME_FAILURE, OUTCOME_NA, OUTCOME_SUCCESS,
-                      SPEED_CAP_M_S, SPIN_CAP_DEG_S, settings)
+                      SPEED_CAP_MM_S, SPIN_CAP_DEG_S, Settings, settings)
 from ..diagnostics import DOWN, OK, STALE, UNKNOWN, WARN
 from ..logbridge import log
 from ..naming import build_folder_name
@@ -250,13 +250,18 @@ class ExperimentTab:
 
             ui.label('Magnitude per axis').classes('eyebrow mt-3')
             self.sliders = {}
-            for key, label, cap, step, fmt in (('speed', 'Speed m/s', SPEED_CAP_M_S, 0.001, '%.3f'), ('spin', 'Spin deg/s', SPIN_CAP_DEG_S, 0.01, '%.2f')):
+            for key, label, cap, step, fmt in (('speed', 'Speed mm/s', SPEED_CAP_MM_S, 0.1, '%.1f'), ('spin', 'Spin deg/s', SPIN_CAP_DEG_S, 0.1, '%.1f')):
                 with ui.row().classes('items-center gap-3 w-full no-wrap mt-5'):
-                    ui.label(label).classes('text-sm w-24')
+                    ui.label(label).classes('text-sm w-24 shrink-0')
                     slider = ui.slider(min=0.0, max=cap, step=step, value=min(self._value(key), self._max(key)),
                                        on_change=lambda e, k=key: self._on_value(k, e.value)).classes('flex-grow max-stop').props(SLIDER_PROPS)
-                    ui.number('Max', value=self._max(key), min=0.0, max=cap, step=step, format=fmt,
-                              on_change=lambda e, k=key: self._on_max(k, e.value)).props('outlined dense').classes('w-24')
+                    value_box = ui.number('Value', value=slider.value, min=0.0, max=cap, step=step, format=fmt).props('outlined dense').classes('shrink-0').style('width: 88px').bind_value(slider)
+                    # no min on Max: a negative must reach _on_max_done, not be clamped to 0 on blur
+                    max_box = ui.number('Max', value=self._max(key), max=cap, step=step, format=fmt,
+                                        on_change=lambda e, k=key: self._on_max(k, e.value)).props('outlined dense').classes('shrink-0').style('width: 88px')
+                    for event in ('blur', 'keydown.enter'):
+                        value_box.on(event, lambda _, b=value_box: self._on_value_done(b))
+                        max_box.on(event, lambda _, b=max_box, k=key: self._on_max_done(k, b))
                 self.sliders[key] = slider
                 self._set_stop(key)
             with ui.grid(columns=2).classes('gap-x-6 gap-y-1 mt-3'):
@@ -333,8 +338,8 @@ class ExperimentTab:
             tool = '"{}"'.format(tools.tool_label(settings.tool_name or '?'))
             steps = ['Clear the system monitor fault state',
                      'Remove any spawned tool, then spawn {} ({}) in front of the perch cam with a random pose, '
-                     'moving at {:.3f} m/s and {:.2f} deg/s on the ticked axes'.format(
-                         tool, 'bright' if settings.tool_bright else 'original', settings.speed_m_s, settings.spin_deg_s)]
+                     'moving at {:.1f} mm/s and {:.1f} deg/s on the ticked axes'.format(
+                         tool, 'bright' if settings.tool_bright else 'original', settings.speed_mm_s, settings.spin_deg_s)]
             if settings.home_pose:
                 steps.insert(0, 'Return the robot to its home pose')
             else:
@@ -422,8 +427,8 @@ class ExperimentTab:
         setattr(settings, attr, bool(value))
         settings.save()
 
-    # speed_m_s / speed_max_m_s and spin_deg_s / spin_max_deg_s, by short key
-    _FIELDS = {'speed': ('speed_m_s', 'speed_max_m_s'), 'spin': ('spin_deg_s', 'spin_max_deg_s')}
+    # speed_mm_s / speed_max_mm_s and spin_deg_s / spin_max_deg_s, by short key
+    _FIELDS = {'speed': ('speed_mm_s', 'speed_max_mm_s'), 'spin': ('spin_deg_s', 'spin_max_deg_s')}
 
     def _value(self, key: str) -> float:
         return float(getattr(settings, self._FIELDS[key][0]))
@@ -442,12 +447,28 @@ class ExperimentTab:
             slider.set_value(top)
 
     def _on_value(self, key: str, value) -> None:
-        setattr(settings, self._FIELDS[key][0], min(float(value or 0.0), self._max(key)))
+        if value is None:           # mid-edit in the Value box
+            return
+        clamped = max(0.0, min(float(value), self._max(key)))
+        if clamped != float(value):         # typed outside [0, max] in the Value box
+            self.sliders[key].set_value(clamped)
+            return
+        setattr(settings, self._FIELDS[key][0], clamped)
         settings.save()
         self._update_motion_hint()
 
+    def _on_value_done(self, box) -> None:
+        """Empty or invalid Value -> 0. Negative and above-max are handled in _on_value."""
+        if box.value is None:
+            box.set_value(0.0)
+
+    def _on_max_done(self, key: str, box) -> None:
+        """Empty, invalid or negative Max -> the default max from config."""
+        if box.value is None or box.value < 0:
+            box.set_value(getattr(Settings, self._FIELDS[key][1]))
+
     def _on_max(self, key: str, value) -> None:
-        if value is None:           # mid-edit in the number box
+        if value is None or value < 0:      # mid-edit; _on_max_done resets it when the box is left
             return
         setattr(settings, self._FIELDS[key][1], max(0.0, min(float(value), float(self.sliders[key]._props['max']))))
         settings.save()
@@ -462,12 +483,12 @@ class ExperimentTab:
         for key, slider in self.sliders.items():
             slider.set_value(self._value(key))
         self._reload_tools()
-        log.info('Randomised: %s (%s), linear %s at %.3f m/s, angular %s at %.2f deg/s', settings.tool_name, 'bright' if settings.tool_bright else 'original',
-                 ''.join(a for a, on in settings.force_axes.items() if on) or '-', settings.speed_m_s,
+        log.info('Randomised: %s (%s), linear %s at %.1f mm/s, angular %s at %.1f deg/s', settings.tool_name, 'bright' if settings.tool_bright else 'original',
+                 ''.join(a for a, on in settings.force_axes.items() if on) or '-', settings.speed_mm_s,
                  ''.join(a for a, on in settings.torque_axes.items() if on) or '-', settings.spin_deg_s)
 
     def _update_motion_hint(self) -> None:
-        self.motion_hint.set_text('Each ticked axis: \u00b1{:.3f} m/s, \u00b1{:.2f} deg/s (random sign).'.format(settings.speed_m_s, settings.spin_deg_s))
+        self.motion_hint.set_text('Each ticked axis: \u00b1{:.1f} mm/s, \u00b1{:.1f} deg/s (random sign).'.format(settings.speed_mm_s, settings.spin_deg_s))
 
     def _on_axis(self, group: str, axis: str, value: bool) -> None:
         getattr(settings, group)[axis] = bool(value)

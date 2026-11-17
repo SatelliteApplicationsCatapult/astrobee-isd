@@ -25,7 +25,7 @@ set_model_state takes the twist in the reference frame ('world').
 
 Magnitudes
 ----------
-Each ticked axis gets exactly the slider value (speed_m_s / spin_deg_s) with a
+Each ticked axis gets exactly the slider value (speed_mm_s / spin_deg_s, converted to m/s and rad/s) with a
 random sign. X/Y linear signs are biased toward the boresight so edge spawns do
 not drift straight out of view. No force or torque is involved, so the result
 is independent of the tool's mass and inertia.
@@ -189,9 +189,9 @@ def randomise(settings: Settings, rng: random.Random = random) -> None:
                 break
     settings.force_axes, settings.torque_axes = force, torque
     if settings.random_speed:
-        settings.speed_m_s = round(rng.uniform(0.0, settings.speed_max_m_s), 3)
+        settings.speed_mm_s = round(rng.uniform(0.0, settings.speed_max_mm_s), 1)
     if settings.random_spin:
-        settings.spin_deg_s = round(rng.uniform(0.0, settings.spin_max_deg_s), 2)
+        settings.spin_deg_s = round(rng.uniform(0.0, settings.spin_max_deg_s), 1)
     names = list_tools(settings.models_dir)
     if settings.random_tool and names:
         settings.tool_name = rng.choice(names)
@@ -269,7 +269,7 @@ def _measure(model: str) -> dict:
         return {}
     linear, angular = velocity
     return {
-        'speed_m_s': round(_norm(linear), 4),
+        'speed_mm_s': round(_norm(linear) * 1000.0, 1),
         'spin_deg_s': round(math.degrees(_norm(angular)), 2),
         'linear_world_m_s': [round(v, 4) for v in linear],
         'angular_world_rad_s': [round(v, 4) for v in angular],
@@ -281,7 +281,7 @@ def set_tool_motion(settings: Settings, model: str, xyz: Vec3, quat: Quat, cam_q
     if not wait_for_model(model, timeout=3.0):
         log.warning('Model "%s" has not appeared in model_states; setting its velocity anyway.', model)
 
-    linear_cam = sample_velocity(offset, settings.force_axes, float(settings.speed_m_s), rng)
+    linear_cam = sample_velocity(offset, settings.force_axes, float(settings.speed_mm_s) / 1000.0, rng)
     angular_body = sample_spin(settings.torque_axes, math.radians(float(settings.spin_deg_s)), rng)
     linear_world = quat_rotate(cam_quat, linear_cam)
     angular_world = quat_rotate(quat, angular_body)
@@ -291,15 +291,15 @@ def set_tool_motion(settings: Settings, model: str, xyz: Vec3, quat: Quat, cam_q
         log.warning('set_model_state failed for %s: %s', model, message)
 
     measured = _measure(model)
-    log.info('Tool motion: requested %.3f m/s, %.1f deg/s | measured %s m/s, %s deg/s',
-             _norm(linear_world), math.degrees(_norm(angular_world)), measured.get('speed_m_s', '?'), measured.get('spin_deg_s', '?'))
+    log.info('Tool motion: requested %.1f mm/s, %.1f deg/s | measured %s mm/s, %s deg/s',
+             _norm(linear_world) * 1000.0, math.degrees(_norm(angular_world)), measured.get('speed_mm_s', '?'), measured.get('spin_deg_s', '?'))
 
     return {
         'linear_perchcam_m_s': [round(v, 4) for v in linear_cam],
         'angular_body_rad_s': [round(v, 4) for v in angular_body],
         'linear_world_m_s': [round(v, 4) for v in linear_world],
         'angular_world_rad_s': [round(v, 4) for v in angular_world],
-        'speed_m_s': settings.speed_m_s,
+        'speed_mm_s': settings.speed_mm_s,
         'spin_deg_s': settings.spin_deg_s,
         'force_axes': dict(settings.force_axes),
         'torque_axes': dict(settings.torque_axes),

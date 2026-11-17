@@ -200,8 +200,8 @@ PERCH_CAM_QUAT = (0.0, -0.707, 0.0, 0.707)      # x y z w
 # after spawning - no force/torque impulse, so the result does not depend on
 # the tool's mass or inertia. Per-axis caps (the right-hand slider handle can
 # not go past these):
-SPEED_CAP_M_S = 0.2         # linear, per perch_cam axis
-SPIN_CAP_DEG_S = 90.0       # angular, per tool body axis (about the CoM)
+SPEED_CAP_MM_S = 200.0      # linear, per perch_cam axis (converted to m/s for Gazebo)
+SPIN_CAP_DEG_S = 90.0       # angular, per tool body axis (about the CoM; converted to rad/s for Gazebo)
 
 # How hard off-axis spawns are pushed back toward the perch_cam boresight: the
 # X/Y velocity sign points inward with probability 0.5 + 0.5*bias*|offset|,
@@ -283,8 +283,8 @@ class Settings:
         default_factory=lambda: {'x': True, 'y': True, 'z': True})
     # Per-axis magnitude actually used, and the operator's max for it. The
     # randomiser redraws the value in [0, max]; it never moves the max.
-    speed_m_s: float = 0.1
-    speed_max_m_s: float = 0.2
+    speed_mm_s: float = 100.0
+    speed_max_mm_s: float = 200.0
     spin_deg_s: float = 30.0
     spin_max_deg_s: float = 90.0
 
