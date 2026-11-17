@@ -270,7 +270,13 @@ class Settings:
     # tools
     tool_name: str = ''             # base folder name; '' = first found
     tool_bright: bool = False       # spawn <tool_name>_bright instead
-    random_tool: bool = False       # Randomise also picks the tool
+    # what the Randomise button is allowed to change
+    random_tool: bool = False       # tool
+    random_colour: bool = False     # original / bright variant
+    random_linear: bool = True      # linear axis ticks
+    random_angular: bool = True     # angular axis ticks
+    random_speed: bool = True       # speed slider
+    random_spin: bool = True        # spin slider
     force_axes: Dict[str, bool] = field(
         default_factory=lambda: {'x': True, 'y': True, 'z': True})
     torque_axes: Dict[str, bool] = field(

@@ -171,24 +171,35 @@ def sample_spin(axes: Dict[str, bool], spin_rad: float, rng: random.Random) -> V
 
 
 def randomise(settings: Settings, rng: random.Random = random) -> None:
-    """The Randomise button: axes ticked, both slider values, and - if
-    settings.random_tool is set - the tool and its colour variant. Never the maxima.
+    """The Randomise button. Changes only what its random_* tick boxes allow;
+    never the maxima.
 
-    Each of the six axes is a coin flip, redrawn if all six come up empty, so a
-    randomised reset always moves the tool.
+    Each randomised axis is a coin flip. The draw is repeated while all six
+    axes are off, so the tool always moves - unless both axis groups are fixed,
+    in which case the operator's ticks stand as they are.
     """
-    while True:
-        force = {axis: rng.random() < 0.5 for axis in AXES}
-        torque = {axis: rng.random() < 0.5 for axis in AXES}
-        if any(force.values()) or any(torque.values()):
-            break
+    force, torque = dict(settings.force_axes), dict(settings.torque_axes)
+    if settings.random_linear or settings.random_angular:
+        while True:
+            if settings.random_linear:
+                force = {axis: rng.random() < 0.5 for axis in AXES}
+            if settings.random_angular:
+                torque = {axis: rng.random() < 0.5 for axis in AXES}
+            if any(force.values()) or any(torque.values()):
+                break
     settings.force_axes, settings.torque_axes = force, torque
-    settings.speed_m_s = round(rng.uniform(0.0, settings.speed_max_m_s), 3)
-    settings.spin_deg_s = round(rng.uniform(0.0, settings.spin_max_deg_s), 2)
+    if settings.random_speed:
+        settings.speed_m_s = round(rng.uniform(0.0, settings.speed_max_m_s), 3)
+    if settings.random_spin:
+        settings.spin_deg_s = round(rng.uniform(0.0, settings.spin_max_deg_s), 2)
     names = list_tools(settings.models_dir)
     if settings.random_tool and names:
         settings.tool_name = rng.choice(names)
-        settings.tool_bright = has_bright(settings.models_dir, settings.tool_name) and rng.random() < 0.5
+    bright_exists = has_bright(settings.models_dir, settings.tool_name)
+    if settings.random_colour:
+        settings.tool_bright = bright_exists and rng.random() < 0.5
+    else:
+        settings.tool_bright = settings.tool_bright and bright_exists   # keep the choice where the new tool allows it
     settings.save()
 
 

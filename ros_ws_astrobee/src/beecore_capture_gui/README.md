@@ -318,9 +318,12 @@ the tool's mass or inertia.
   track is lighter up to the max and ends in a red stop; the handle cannot
   pass it. Caps are
   `SPEED_CAP_M_S` (0.2) and `SPIN_CAP_DEG_S` (90) in `config.py`.
-- **Randomise** flips a coin for each of the six axes (never all off), draws
-  both values in `[0, max]`, and picks a random tool and colour variant if
-  **Randomise tool** is ticked. It never moves the maxima.
+- **Randomise** changes only what its six tick boxes allow: tool, colour,
+  linear axes, angular axes, speed, spin. Unticked items keep their current
+  value. Axes are a coin flip each, redrawn while all six are off. Speed and
+  spin are drawn in `[0, max]`. It never moves the maxima. With colour
+  unticked, Bright is kept if the new tool has a bright variant, otherwise it
+  falls back to Original.
 
 The requested and measured velocities are logged and stored in
 `metadata.json` under `reset`, with the tool, model and variant. If no reset

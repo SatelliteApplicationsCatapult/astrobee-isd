@@ -230,7 +230,6 @@ class ExperimentTab:
                 self.tool_select = ui.select({}, label='Tool', with_input=True, on_change=self._on_tool_change).props('outlined dense').classes('w-72')
                 self.variant_toggle = ui.toggle({'default': 'Original', 'bright': 'Bright'}, value='bright' if settings.tool_bright else 'default',
                                                 on_change=self._on_variant_change).props('no-caps unelevated dense')
-            ui.checkbox('Randomise tool', value=settings.random_tool, on_change=self._on_random_tool).props('dense color=secondary')
             self.tool_image = ui.image('').classes('w-72 h-20 mt-2').props('fit=contain')
             self.tool_image_missing = ui.label('No thumbnail for this tool.').classes('text-xs mt-2').style('color: {}'.format(theme.MUTED))
             self.tools_status = ui.label('').classes('text-xs').style('color: {}'.format(theme.RED))
@@ -260,6 +259,11 @@ class ExperimentTab:
                               on_change=lambda e, k=key: self._on_max(k, e.value)).props('outlined dense').classes('w-24')
                 self.sliders[key] = slider
                 self._set_stop(key)
+            with ui.grid(columns=2).classes('gap-x-6 gap-y-1 mt-3'):
+                for attr, label in (('random_tool', 'Randomise tool'), ('random_colour', 'Randomise colour'),
+                                    ('random_linear', 'Randomise linear motion'), ('random_angular', 'Randomise angular motion'),
+                                    ('random_speed', 'Randomise speed'), ('random_spin', 'Randomise spin')):
+                    ui.checkbox(label, value=getattr(settings, attr), on_change=lambda e, a=attr: self._on_random_flag(a, e.value)).props('dense color=secondary')
             with ui.row().classes('items-center gap-3 mt-2'):
                 ui.button('Randomise', icon='casino', on_click=self._on_randomise).props('outline color=secondary')
                 self.motion_hint = ui.label('').classes('text-xs').style('color: {}'.format(theme.MUTED))
@@ -414,8 +418,8 @@ class ExperimentTab:
         settings.save()
         self._update_tool_image()
 
-    def _on_random_tool(self, event) -> None:
-        settings.random_tool = bool(event.value)
+    def _on_random_flag(self, attr: str, value) -> None:
+        setattr(settings, attr, bool(value))
         settings.save()
 
     # speed_m_s / speed_max_m_s and spin_deg_s / spin_max_deg_s, by short key
@@ -450,7 +454,7 @@ class ExperimentTab:
         self._set_stop(key)
 
     def _on_randomise(self) -> None:
-        """Axes and the two values; the maxima stay where the operator put them."""
+        """Whatever the Randomise tick boxes allow; the maxima stay where the operator put them."""
         tools.randomise(settings)
         for group, boxes in self._axis_boxes.items():
             for axis, box in boxes.items():
