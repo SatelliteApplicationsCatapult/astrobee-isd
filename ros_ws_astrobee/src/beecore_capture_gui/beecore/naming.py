@@ -2,19 +2,26 @@
 
 Layout produced per run:
 
-    <save_dir>/<YYYYmmdd>_<HHMMSS>_<NNN>_<suffix>/
-        <same name>.bag
+    <save_dir>/v<M>_<m>_<p>/session_<SSS>/uid_<UUU>/<run>/
+        <run>.bag
         SUCCESS | FAILURE
         metadata.json
+        params.yaml
+
+    <run> = <YYYYMMDDTHHMMSSZ>_s<SSS>_u<UUU>[_<suffix>]
+
+The timestamp is ISO 8601 basic format, UTC, taken when Start is pressed.
+IDs are zero-padded to three digits and simply grow past 999.
 """
 
 import os
 import re
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Optional, Tuple
 
 _UNSAFE = re.compile(r'[^A-Za-z0-9_\-]')
-_FOLDER = re.compile(r'^\d{8}_\d{6}_(\d{3})')
+
+STAMP_PLACEHOLDER = 'YYYYMMDDTHHMMSSZ'
 
 
 def sanitise_suffix(raw: str) -> str:
@@ -23,26 +30,37 @@ def sanitise_suffix(raw: str) -> str:
     return re.sub(r'_+', '_', cleaned).strip('_')
 
 
-def build_folder_name(experiment_id: int, suffix: str,
-                      when: Optional[datetime] = None) -> str:
-    stamp = (when or datetime.now()).strftime('%Y%m%d_%H%M%S')
-    parts = [stamp, '{:03d}'.format(experiment_id)]
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(microsecond=0)
+
+
+def stamp_basic(when: datetime) -> str:
+    """20261118T164400Z - for folder and file names."""
+    return when.strftime('%Y%m%dT%H%M%SZ')
+
+
+def stamp_extended(when: datetime) -> str:
+    """2026-11-18T16:44:00Z - for metadata."""
+    return when.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def version_tag(version: Tuple[int, int, int]) -> str:
+    return 'v{}_{}_{}'.format(*version)
+
+
+def run_name(stamp: str, session_id: int, uid: int, suffix: str) -> str:
+    parts = [stamp, 's{:03d}'.format(session_id), 'u{:03d}'.format(uid)]
     clean = sanitise_suffix(suffix)
     if clean:
         parts.append(clean)
     return '_'.join(parts)
 
 
-def scan_next_experiment_id(save_dir: str) -> Optional[int]:
-    """Highest ID already on disk plus one, so a restart never collides."""
-    if not os.path.isdir(save_dir):
-        return None
-    highest = 0
-    try:
-        for name in os.listdir(save_dir):
-            match = _FOLDER.match(name)
-            if match:
-                highest = max(highest, int(match.group(1)))
-    except OSError:
-        return None
-    return highest + 1 if highest else None
+def run_dir(save_dir: str, version: Tuple[int, int, int], session_id: int,
+            uid: int, suffix: str, when: Optional[datetime] = None) -> str:
+    """Full run folder path. With no `when`, the timestamp is a placeholder."""
+    stamp = stamp_basic(when) if when else STAMP_PLACEHOLDER
+    return os.path.join(save_dir, version_tag(version),
+                        'session_{:03d}'.format(session_id),
+                        'uid_{:03d}'.format(uid),
+                        run_name(stamp, session_id, uid, suffix))

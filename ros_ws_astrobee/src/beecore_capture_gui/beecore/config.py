@@ -25,7 +25,7 @@ DEFAULT_MODELS_DIR = os.path.join(
 CONFIG_PATH = os.environ.get(
     'BEECORE_GUI_CONFIG', os.path.expanduser('~/.beecore_capture_gui.json'))
 # Read once if the new file does not exist yet, so a rename does not silently
-# reset the camera offset, topic selection and experiment ID.
+# reset the camera offset or topic selection.
 LEGACY_CONFIG_PATH = os.path.expanduser('~/.astrobee_data_gui.json')
 
 # --- ros / server ------------------------------------------------------------
@@ -238,8 +238,10 @@ class Settings:
     models_dir: str = DEFAULT_MODELS_DIR
 
     # run metadata
+    data_version: List[int] = field(default_factory=lambda: [1, 0, 0])
+    session_id: int = 0
+    uid: int = 0
     suffix: str = ''
-    experiment_id: int = 1
     wanted_topics: List[str] = field(default_factory=list)
     record_all: bool = False
     buffer_mb: int = 1024

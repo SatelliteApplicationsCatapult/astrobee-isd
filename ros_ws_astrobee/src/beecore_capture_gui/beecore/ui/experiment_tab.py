@@ -1,6 +1,6 @@
 """Experiment control.
 
-Left column  - everything configurable: run control, metadata, outcome,
+Left column  - everything configurable: metadata, outcome, run control,
                tool selection and perturbation axes.
 Right column - read-only diagnostics.
 
@@ -8,8 +8,6 @@ The namespace input sits at the top of the right column because it
 parameterises every reading below it.
 """
 
-import os
-import re
 import threading
 
 from nicegui import ui
@@ -18,7 +16,7 @@ from ..config import (FAULT_STATES, OUTCOME_FAILURE, OUTCOME_NA, OUTCOME_SUCCESS
                       SPEED_CAP_MM_S, SPIN_CAP_DEG_S, Settings, settings)
 from ..diagnostics import DOWN, OK, STALE, UNKNOWN, WARN
 from ..logbridge import log
-from ..naming import build_folder_name
+from ..naming import run_dir
 from ..recorder import RecorderError
 from ..reset import clear_fault
 from ..ros_link import call_set_bool
@@ -33,6 +31,19 @@ from .. import theme
 # the handle there. The max itself is set in the number box beside it.
 SLIDER_PROPS = ('label-always color=secondary track-color=grey-9 inner-track-color=grey-7 '
                 'marker-labels-class=text-brand-red')
+
+def _as_id(value) -> int:
+    """Number box value to a non-negative int. Empty or invalid -> 0."""
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _version():
+    v = list(settings.data_version or []) + [0, 0, 0]
+    return tuple(_as_id(x) for x in v[:3])
+
 
 _LED_COLOUR = {
     OK: theme.GREEN,
@@ -82,9 +93,9 @@ class ExperimentTab:
     def build(self) -> None:
         with ui.row().classes('w-full gap-4 p-4 items-start no-wrap'):
             with ui.column().classes('gap-4').style('flex: 1 1 0; min-width: 0'):
-                self._build_run_control()
                 self._build_metadata()
                 self._build_outcome()
+                self._build_run_control()
                 self._build_control()
                 self._build_tools()
             with ui.column().classes('gap-4').style('flex: 0 0 340px'):
@@ -113,20 +124,37 @@ class ExperimentTab:
     def _build_metadata(self) -> None:
         with ui.card().classes('w-full'):
             ui.label('Run metadata').classes('eyebrow')
-            with ui.row().classes('items-center gap-4 w-full'):
-                self.id_input = ui.input(
-                    'Experiment ID',
-                    value='{:03d}'.format(settings.experiment_id),
-                    on_change=self._on_id_change,
-                ).props('outlined dense').classes('w-32')
+            with ui.row().classes('items-center gap-3 w-full no-wrap'):
+                ui.label('Data version').classes('text-sm w-28 shrink-0')
+                self.version_inputs = [
+                    self._id_box(label, lambda v, i=i: self._on_version_change(i, v),
+                                 settings.data_version[i])
+                    for i, label in enumerate(('Major', 'Minor', 'Patch'))]
+            with ui.row().classes('items-center gap-3 w-full no-wrap'):
+                ui.label('Session / UID').classes('text-sm w-28 shrink-0')
+                self.session_input = self._id_box(
+                    'Session', self._on_session_change, settings.session_id)
+                self.uid_input = self._id_box(
+                    'UID', self._on_uid_change, settings.uid)
+            with ui.row().classes('items-center gap-4 w-full mt-2'):
                 self.suffix_input = ui.input(
-                    'Bag suffix', value=settings.suffix,
-                    placeholder='e.g. handrail grasp',
+                    'Bag suffix (optional)', value=settings.suffix,
+                    placeholder='e.g. isam',
                     on_change=self._on_suffix_change,
                 ).props('outlined dense').classes('flex-grow')
             ui.label('Next bag folder').classes('eyebrow mt-2')
             self.preview = ui.label('').classes('font-mono text-xs break-all').style(
                 'color: {}'.format(theme.VIOLET))
+
+    @staticmethod
+    def _id_box(label: str, on_value, value: int):
+        box = ui.number(label, value=value, min=0, step=1, precision=0,
+                        format='%d', on_change=lambda e: on_value(e.value)
+                        ).props('outlined dense').classes('shrink-0').style('width: 88px')
+        box.on('change', box.sanitize)
+        # Cleared box: show the 0 that was stored.
+        box.on('blur', lambda: box.set_value(0) if box.value is None else None)
+        return box
 
     def _build_outcome(self) -> None:
         with ui.card().classes('w-full'):
@@ -311,7 +339,8 @@ class ExperimentTab:
 
     def start(self) -> None:
         try:
-            folder = self.recorder.start(settings.experiment_id, settings.suffix)
+            folder = self.recorder.start(_version(), settings.session_id,
+                                         settings.uid, settings.suffix)
         except RecorderError as exc:
             ui.notify(str(exc), type='negative')
             log.error('Start refused: %s', exc)
@@ -319,8 +348,6 @@ class ExperimentTab:
 
         state.outcome = OUTCOME_NA
         self.outcome_toggle.set_value(OUTCOME_NA)
-        settings.experiment_id += 1
-        settings.save()
         self.refresh()
         ui.notify('Recording {}'.format(folder), type='positive')
 
@@ -367,9 +394,20 @@ class ExperimentTab:
 
     # --- handlers ------------------------------------------------------------
 
-    def _on_id_change(self, event) -> None:
-        digits = re.sub(r'\D', '', str(event.value or ''))
-        settings.experiment_id = int(digits) if digits else 0
+    def _on_version_change(self, index: int, value) -> None:
+        version = list(_version())
+        version[index] = _as_id(value)
+        settings.data_version = version
+        settings.save()
+        self._update_preview()
+
+    def _on_session_change(self, value) -> None:
+        settings.session_id = _as_id(value)
+        settings.save()
+        self._update_preview()
+
+    def _on_uid_change(self, value) -> None:
+        settings.uid = _as_id(value)
         settings.save()
         self._update_preview()
 
@@ -509,8 +547,9 @@ class ExperimentTab:
     # --- refresh -------------------------------------------------------------
 
     def _update_preview(self) -> None:
-        folder = build_folder_name(settings.experiment_id, settings.suffix)
-        self.preview.set_text(os.path.join(settings.save_dir, folder) + '/')
+        path = run_dir(settings.save_dir, _version(), settings.session_id,
+                       settings.uid, settings.suffix)
+        self.preview.set_text(path + '/')
 
     def refresh(self) -> None:
         recording = self.recorder.recording
@@ -518,7 +557,8 @@ class ExperimentTab:
         self.start_btn.set_enabled(not recording and not state.busy)
         self.stop_btn.set_enabled(recording and state.outcome != OUTCOME_NA)
         self.reset_btn.set_enabled(not recording and not state.busy)
-        self.id_input.set_enabled(not recording)
+        for box in self.version_inputs + [self.session_input, self.uid_input]:
+            box.set_enabled(not recording)
         self.suffix_input.set_enabled(not recording)
         self.outcome_toggle.set_enabled(recording)
 
@@ -532,7 +572,6 @@ class ExperimentTab:
             tip = 'Stop closes the bag and writes the {} marker.'.format(state.outcome)
         self.stop_tip.set_text(tip)
 
-        self.id_input.value = '{:03d}'.format(settings.experiment_id)
         self._update_preview()
         # A random-tool reset changes settings.tool_name on the worker thread.
         self._reload_tools()

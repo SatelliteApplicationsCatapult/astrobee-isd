@@ -18,7 +18,6 @@ import socket
 import sys
 import threading
 import time
-from datetime import datetime
 
 from nicegui import app, ui
 
@@ -27,7 +26,7 @@ from beecore.follow_cam import FollowCam, FollowCamError
 from beecore.config import ASSETS_DIR, GUI_HOST, GUI_PORT, settings
 from beecore.diagnostics import Diagnostics
 from beecore.logbridge import log
-from beecore.naming import scan_next_experiment_id
+from beecore.naming import stamp_extended, utc_now
 from beecore.recorder import BagRecorder
 from beecore.runners import RunnerSet
 from beecore.reset import ToolError, capture_home, full_reset
@@ -62,7 +61,7 @@ def make_reset(fault_pub):
         state.last_reset = None
         try:
             meta = full_reset(settings, fault_pub)
-            meta['at'] = datetime.now().isoformat(timespec='seconds')
+            meta['at'] = stamp_extended(utc_now())
             state.last_reset = meta
             log.info('Reset complete: %s spawned.', meta.get('tool'))
         except ToolError as exc:
@@ -94,12 +93,6 @@ def main() -> None:
 
     settings.load()
     state.ros_ok = init_node()
-
-    scanned = scan_next_experiment_id(settings.save_dir)
-    if scanned and scanned > settings.experiment_id:
-        log.info('Existing runs found on disk. Next experiment ID set to %03d.',
-                 scanned)
-        settings.experiment_id = scanned
 
     fault_pub = FaultStatePublisher()
     recorder = BagRecorder(settings)

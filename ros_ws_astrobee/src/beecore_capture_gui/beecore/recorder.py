@@ -11,14 +11,14 @@ import signal
 import subprocess
 import threading
 import time
-from datetime import datetime
 from typing import Callable, List, Optional, Tuple
 
 import rosbag
 
 from .config import BAG_NODE_NAME, STOP_TIMEOUT_S, Settings
 from .logbridge import log
-from .naming import build_folder_name, sanitise_suffix
+from .naming import (run_dir, sanitise_suffix, stamp_extended, utc_now,
+                     version_tag)
 
 
 class RecorderError(Exception):
@@ -36,8 +36,7 @@ class BagRecorder:
         self.bag_dir = None         # type: Optional[str]
         self.bag_path = None        # type: Optional[str]
         self.started_at = None      # type: Optional[float]
-        self.active_id = None       # type: Optional[int]
-        self.active_suffix = ''
+        self.active_meta = {}       # run identity, written into metadata.json
 
     # --- state ---------------------------------------------------------------
 
@@ -78,8 +77,14 @@ class BagRecorder:
 
     # --- start / stop --------------------------------------------------------
 
-    def start(self, experiment_id: int, suffix: str) -> str:
-        """Begin recording. Returns the folder name. Raises RecorderError."""
+    def start(self, version: Tuple[int, int, int], session_id: int, uid: int,
+              suffix: str, uid_type: str = 'user',
+              model_hash: Optional[str] = None) -> str:
+        """Begin recording. Returns the folder name. Raises RecorderError.
+
+        uid_type / model_hash: 'user' and None for operator runs. A future
+        validation batch must pass 'model' and 'sha256:<hex>'.
+        """
         if self.recording:
             raise RecorderError('Already recording.')
 
@@ -88,12 +93,15 @@ class BagRecorder:
             raise RecorderError('No topics selected. Pick topics on the Topics '
                                 'tab, or tick "Record all topics".')
 
-        folder = build_folder_name(experiment_id, suffix)
-        bag_dir = os.path.join(cfg.save_dir, folder)
+        # One timestamp per run: folder, bag name and metadata all use it.
+        when = utc_now()
+        bag_dir = run_dir(cfg.save_dir, version, session_id, uid, suffix, when)
+        folder = os.path.basename(bag_dir)
 
         try:
             os.makedirs(bag_dir, exist_ok=False)
         except FileExistsError:
+            # Same name means same second - refuse rather than overwrite.
             raise RecorderError('Folder already exists: {}'.format(bag_dir))
         except OSError as exc:
             raise RecorderError('Cannot create {}: {}'.format(bag_dir, exc))
@@ -122,8 +130,15 @@ class BagRecorder:
         self.bag_dir = bag_dir
         self.bag_path = bag_path
         self.started_at = time.time()
-        self.active_id = experiment_id
-        self.active_suffix = suffix
+        self.active_meta = {
+            'data_version': version_tag(version),
+            'session_id': session_id,
+            'uid': uid,
+            'uid_type': uid_type,
+            'model_hash': model_hash,
+            'suffix': sanitise_suffix(suffix),
+            'recorded_at': stamp_extended(when),
+        }
 
         scope = ('all topics' if (cfg.record_all or not cfg.wanted_topics)
                  else '{} topics'.format(len(cfg.wanted_topics)))
@@ -138,8 +153,7 @@ class BagRecorder:
             return
 
         proc, bag_dir = self.proc, self.bag_dir
-        duration, exp_id = self.elapsed_s, self.active_id
-        suffix = self.active_suffix
+        duration, run_meta = self.elapsed_s, self.active_meta
         log.info('Stopping recording, marking run as %s ...', outcome)
 
         try:
@@ -165,7 +179,7 @@ class BagRecorder:
 
         threading.Thread(
             target=self._finalise,
-            args=(bag_dir, outcome, exp_id, suffix, duration, extra_meta or {}),
+            args=(bag_dir, outcome, run_meta, duration, extra_meta or {}),
             daemon=True).start()
 
     def poll(self) -> bool:
@@ -193,8 +207,7 @@ class BagRecorder:
     # --- finalisation --------------------------------------------------------
 
     def _finalise(self, bag_dir: Optional[str], outcome: str,
-                  exp_id: Optional[int], suffix: str, duration: float,
-                  extra_meta: dict) -> None:
+                  run_meta: dict, duration: float, extra_meta: dict) -> None:
         if not bag_dir:
             return
 
@@ -208,17 +221,15 @@ class BagRecorder:
         self._reindex_actives(bag_dir)
         summary = self._summarise(bag_dir)
 
-        meta = {
-            'experiment_id': None if exp_id is None else '{:03d}'.format(exp_id),
-            'suffix': sanitise_suffix(suffix),
+        meta = dict(run_meta)
+        meta.update({
             'outcome': outcome,
-            'recorded_at': datetime.now().isoformat(timespec='seconds'),
             'wall_duration_s': round(duration, 2),
             'record_all': self.settings.record_all,
             'requested_topics': ([] if self.settings.record_all
                                  else list(self.settings.wanted_topics)),
             'bags': summary,
-        }
+        })
         meta.update(extra_meta)
         try:
             with open(os.path.join(bag_dir, 'metadata.json'), 'w') as fh:

@@ -19,7 +19,7 @@ beecore_capture_gui/            <- the project; this is the docker cp target
     ├── state.py                runtime state shared across tabs
     ├── theme.py                brand palette and CSS
     ├── logbridge.py            thread-safe logging into the debug pane
-    ├── naming.py               bag folder naming, experiment ID scanning
+    ├── naming.py               run folder naming (version / session / uid / UTC stamp)
     ├── geometry.py             quaternion helpers, no numpy
     ├── ros_link.py             the only module that imports rospy
     ├── recorder.py             BagRecorder: rosbag subprocess lifecycle
@@ -71,8 +71,7 @@ Browse to `http://localhost:8090`.
 | `CUSTOM_WS` | `/src/custom_ws` | default tools folder is `$CUSTOM_WS/models/tools` |
 
 On first run the GUI migrates `~/.astrobee_data_gui.json` if the new file does
-not exist, so the rename does not reset your camera offset, topic selection or
-experiment ID. The old `ASTROBEE_GUI_PORT` / `ASTROBEE_GUI_HOST` variables are
+not exist, so the rename does not reset your camera offset or topic selection. The old `ASTROBEE_GUI_PORT` / `ASTROBEE_GUI_HOST` variables are
 still honoured as fallbacks.
 
 ## The cameras
@@ -333,20 +332,38 @@ than stale.
 
 ## Output
 
+Run metadata sets data version (major / minor / patch), session and UID; all
+are manual. The timestamp is UTC, ISO 8601 basic, taken when Start is pressed
+- the preview shows `YYYYMMDDTHHMMSSZ` in its place. Nothing is created until
+Start. A second Start within the same second is refused.
+
 ```
-<save_dir>/20260816_163245_001_handrail_grasp/
-├── 20260816_163245_001_handrail_grasp.bag
+<save_dir>/v1_0_0/session_000/uid_000/20261118T164400Z_s000_u000_isam/
+├── 20261118T164400Z_s000_u000_isam.bag
 ├── SUCCESS                       # or FAILURE
-└── metadata.json                 # topics, bag summary, all four camera
-                                  # poses and optics, namespace, and the reset
-                                  # that set the scene (measured tool velocity
-                                  # included)
+├── params.yaml                   # rosparam dump at record start
+└── metadata.json                 # written once, at Stop
 ```
+
+`metadata.json` starts with the run identity:
+
+| Key | Example | Note |
+|---|---|---|
+| `data_version` | `"v1_0_0"` | |
+| `session_id` | `0` | int |
+| `uid` | `0` | int |
+| `uid_type` | `"user"` | always `"user"` from the GUI; a validation batch must write `"model"` |
+| `model_hash` | `null` | `null` for user runs; `"sha256:<hex>"` for model runs |
+| `suffix` | `"isam"` | sanitised, may be empty |
+| `recorded_at` | `"2026-11-18T16:44:00Z"` | UTC, the same instant as the folder name |
+
+then outcome, duration, topics, bag summary, all four camera poses and optics,
+namespace, and the reset that set the scene (`reset.at` is UTC too).
 
 Play back with a glob, not the folder:
 
 ```bash
-rosbag play 20260816_163245_001_handrail_grasp/*.bag
+rosbag play 20261118T164400Z_s000_u000_isam/*.bag
 ```
 
 ## Keyboard
