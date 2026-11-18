@@ -2,6 +2,7 @@
 
 import numpy as np
 import rospy
+import time
 
 from astrobee_ros_demo.util import *
 import astrobee_joy_teleop.msg
@@ -37,9 +38,11 @@ class BeecoreController(object):
         if self.ns:
             self.action_ns = "/{}/beh/arm".format(self.ns)
             self.joint_sample_topic = "/{}/beh/arm/joint_sample".format(self.ns)
+            self.arm_state_topic = "/{}/beh/arm/arm_state".format(self.ns)
         else:
             self.action_ns = "/beh/arm"
             self.joint_sample_topic = "/beh/arm/joint_sample"
+            self.arm_state_topic = "/beh/arm/arm_state"
 
         # Initialise parameters from file
         self.controller_rate = rospy.get_param("/rates/controller_rate", 5.0)
@@ -63,13 +66,15 @@ class BeecoreController(object):
 
         # Initialise gamepad params
         # Perch arm
-        self.arm_pan = None    # Measured, ArmGoal degrees
-        self.arm_tilt = None   # Measured, ArmGoal degrees
-        self.cmd_pan = 0.0     # Last successful D-pad pan, ArmGoal degrees
-        self.cmd_tilt = 0.0    # Last successful D-pad tilt, ArmGoal degrees
-        self.dpad_prev = None  # D-pad pressed on the previous message
-        self.arm_busy = False  # An arm goal is running
-        self.arm_goal = None   # Last arm goal sent
+        self.arm_pan = None        # Measured, ArmGoal degrees
+        self.arm_tilt = None       # Measured, ArmGoal degrees
+        self.cmd_pan = 0.0         # Last successful D-pad pan, ArmGoal degrees
+        self.cmd_tilt = 0.0        # Last successful D-pad tilt, ArmGoal degrees
+        self.dpad_prev = None      # D-pad pressed on the previous message
+        self.buttons_prev = {}     # Button pressed on the previous message, by name
+        self.gripper_state = None  # Last reported ArmGripperState (CLOSED 3, OPEN 4), None until first message
+        self.arm_busy = False      # An arm goal is running
+        self.arm_goal = None       # Last arm goal sent
         # Body wrench
         self.joy_wrench = np.zeros((6, ))
 
@@ -177,31 +182,51 @@ class BeecoreController(object):
                 self.arm_tilt = sample.angle_pos
 
 
+    def gripper_state_sub_cb(self, msg=ff_msgs.msg.ArmStateStamped()):
+        """
+        Gripper state callback. Reads only the gripper part of the arm state, so a
+        request for the state the gripper is already in is not sent.
+
+        :param msg: arm state; only gripper_state is used
+        :type msg: ff_msgs.msg.ArmStateStamped
+        """
+
+        self.gripper_state = msg.gripper_state.state
+
+
     def joy_arm_sub_cb(self, msg=astrobee_joy_teleop.msg.JoyArm()):
         """
-        Perch arm joystick callback. Buttons send their goal on every message
-        while held. D-pad steps pan/tilt while held, starting from the arm's
+        Perch arm joystick callback. Buttons send one goal per press, ignored
+        while an arm goal is running. D-pad steps pan/tilt while held, starting from the arm's
         measured pose, one step per completed goal.
 
         :param msg: perch arm joystick state
         :type msg: astrobee_joy_teleop.msg.JoyArm
         """
 
-        if msg.deploy:
+        if self.button_pressed("deploy", msg.deploy):
             rospy.loginfo("ARM: Deploy")
             self.send_arm_goal(ff_msgs.msg.ArmGoal(command=ff_msgs.msg.ArmGoal.ARM_DEPLOY))
 
-        if msg.stow:
+        if self.button_pressed("stow", msg.stow):
             rospy.loginfo("ARM: Stow")
             self.send_arm_goal(ff_msgs.msg.ArmGoal(command=ff_msgs.msg.ArmGoal.ARM_STOW))
 
-        if msg.gripper_open:
-            rospy.loginfo("ARM: Gripper Open")
-            self.send_arm_goal(ff_msgs.msg.ArmGoal(command=ff_msgs.msg.ArmGoal.GRIPPER_OPEN))
+        # A request for the state the gripper is already in still runs the full motion and holds the
+        # arm in SETTING, so the opposite request straight after is rejected. Skip it instead.
+        if self.button_pressed("gripper_open", msg.gripper_open):
+            if self.gripper_state == ff_msgs.msg.ArmGripperState.OPEN:
+                rospy.loginfo("ARM: Gripper already open, ignored")
+            else:
+                rospy.loginfo("ARM: Gripper Open")
+                self.send_arm_goal(ff_msgs.msg.ArmGoal(command=ff_msgs.msg.ArmGoal.GRIPPER_OPEN))
 
-        if msg.gripper_close:
-            rospy.loginfo("ARM: Gripper Close")
-            self.send_arm_goal(ff_msgs.msg.ArmGoal(command=ff_msgs.msg.ArmGoal.GRIPPER_CLOSE))
+        if self.button_pressed("gripper_close", msg.gripper_close):
+            if self.gripper_state == ff_msgs.msg.ArmGripperState.CLOSED:
+                rospy.loginfo("ARM: Gripper already closed, ignored")
+            else:
+                rospy.loginfo("ARM: Gripper Close")
+                self.send_arm_goal(ff_msgs.msg.ArmGoal(command=ff_msgs.msg.ArmGoal.GRIPPER_CLOSE))
 
         # D-pad pan/tilt
         dpad = msg.pan != 0 or msg.tilt != 0
@@ -297,7 +322,11 @@ class BeecoreController(object):
         self.joint_sample_sub = rospy.Subscriber(self.joint_sample_topic,
                                                  ff_msgs.msg.JointSampleStamped,
                                                  self.joint_sample_sub_cb,
-                                                 queue_size=10)
+                                                 queue_size=1)
+        self.gripper_state_sub = rospy.Subscriber(self.arm_state_topic,
+                                                  ff_msgs.msg.ArmStateStamped,
+                                                  self.gripper_state_sub_cb,
+                                                  queue_size=1)
         self.joy_arm_sub = rospy.Subscriber("/joy_arm",
                                             astrobee_joy_teleop.msg.JoyArm,
                                             self.joy_arm_sub_cb,
@@ -324,6 +353,11 @@ class BeecoreController(object):
         self.pmc_timeout = rospy.ServiceProxy("~pmc_timeout_srv",
                                               ff_msgs.srv.SetFloat)
 
+        # With use_sim_time, ROS time reads 0 until the first /clock arrives.
+        # A timeout started at 0 expires the moment the clock jumps to sim time, so wait for the clock first.
+        while rospy.get_rostime().is_zero() and not rospy.is_shutdown():
+            time.sleep(0.1)
+
         # Perch arm action client
         rospy.loginfo("Waiting for arm action server: %s", self.action_ns)
         self.arm_client = actionlib.SimpleActionClient(self.action_ns, ff_msgs.msg.ArmAction)
@@ -340,6 +374,27 @@ class BeecoreController(object):
         # Wait for services
         self.onboard_ctl.wait_for_service()
         self.pmc_timeout.wait_for_service()
+
+
+    def button_pressed(self, name, held):
+        """
+        True once per press, on the released -> pressed edge, and only if no arm goal is running.
+        Repeats while held preempted the first goal and left the arm behaviour stuck in SETTING.
+
+        :param name: button name, used to remember its previous state
+        :type name: str
+        :param held: button state in this message
+        :type held: bool
+        :return: True if a goal should be sent now
+        :rtype: bool
+        """
+
+        fresh = bool(held) and not self.buttons_prev.get(name, False)
+        self.buttons_prev[name] = bool(held)
+        if fresh and self.arm_busy:
+            rospy.logwarn("ARM: %s ignored, previous arm goal still running", name)
+            return False
+        return fresh
 
 
     def send_arm_goal(self, goal):
