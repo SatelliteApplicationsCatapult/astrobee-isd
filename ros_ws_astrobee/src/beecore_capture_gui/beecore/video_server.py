@@ -229,8 +229,10 @@ class VideoServer:
                 'web_video_server is not installed. '
                 'sudo apt install ros-noetic-web-video-server')
 
+        # ros_threads do the JPEG encoding, shared by all streams (default 2). Four 800x600 streams at ~45 Hz
+        # outran two threads and frames were dropped. server_threads only handle HTTP requests (default 1).
         cmd = ['rosrun', 'web_video_server', 'web_video_server',
-               '_port:={}'.format(port)]
+               '_port:={}'.format(port), '_ros_threads:=6', '_server_threads:=4']
         try:
             self.proc = subprocess.Popen(
                 cmd, preexec_fn=os.setsid,

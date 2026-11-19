@@ -46,6 +46,7 @@ _OVERLAY_JS = '''
   // nor 'error' - it just spins forever. So liveness cannot be judged on
   // events alone; each tile tracks whether a first frame ever arrived.
   var tiles = [];
+  var retired = false;   // true once a newer viewer tab has taken over the streams
   document.querySelectorAll('img.stream').forEach(function (img) {
     var tile = {
       img: img,
@@ -56,7 +57,7 @@ _OVERLAY_JS = '''
     };
 
     function reconnect() {
-      if (tile.retry) { return; }
+      if (tile.retry || retired) { return; }
       tile.retry = setTimeout(function () {
         tile.retry = null;
         tile.loaded = false;
@@ -74,6 +75,7 @@ _OVERLAY_JS = '''
       tile.msg.style.display = 'none';
     });
     img.addEventListener('error', function () {
+      if (retired) { return; }
       tile.loaded = false;
       tile.msg.style.display = 'flex';
       reconnect();
@@ -85,6 +87,7 @@ _OVERLAY_JS = '''
   // an <img> gives no per-frame signal for MJPEG, so anything that treated
   // "no event recently" as a stall would keep tearing down healthy streams.
   setInterval(function () {
+    if (retired) { return; }
     tiles.forEach(function (tile) {
       if (!tile.loaded) {
         tile.msg.style.display = 'flex';
@@ -92,6 +95,24 @@ _OVERLAY_JS = '''
       }
     });
   }, 1000);
+
+  // Newest viewer wins. Each tile holds one HTTP connection open for good, and the browser allows only 6 per server,
+  // so a second /view tab got 2 of its 4 cameras. A new viewer tells the others it opened; they drop their streams.
+  // BroadcastChannel reaches every tab of this site, however it was opened (window.open by name only finds related tabs).
+  if ('BroadcastChannel' in window) {
+    var channel = new BroadcastChannel('beecore_view');
+    channel.onmessage = function (e) {
+      if (e.data !== 'opened' || retired) { return; }
+      retired = true;
+      tiles.forEach(function (tile) {
+        if (tile.retry) { clearTimeout(tile.retry); tile.retry = null; }
+        tile.img.src = 'data:,';   // replaces the stream request, which closes its connection
+        tile.msg.style.display = 'none';
+      });
+      document.getElementById('moved').style.display = 'flex';
+    };
+    channel.postMessage('opened');   // not delivered to this tab itself
+  }
 
   // Overlay fades out once you stop moving the mouse, so a fullscreen
   // viewer is genuinely just the images.
@@ -165,6 +186,13 @@ def _render() -> None:
                     display:grid; grid-template-columns:1fr 1fr;
                     grid-template-rows:1fr 1fr; gap:2px;">
           {tiles}
+        </div>
+        <div id="moved"
+             style="display:none; position:fixed; inset:0; background:#000;
+                    align-items:center; justify-content:center; flex-direction:column; gap:0.5rem;
+                    color:{text}; font-family:monospace; font-size:0.9rem;">
+          <div>Viewer moved to another tab - streams stopped here.</div>
+          <a href="/view" style="color:{violet}; text-decoration:none;">Reload to bring it back here</a>
         </div>
         <div id="overlay"
              style="position:fixed; left:0; right:0; bottom:0;

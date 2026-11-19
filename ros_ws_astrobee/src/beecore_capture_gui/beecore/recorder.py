@@ -15,7 +15,7 @@ from typing import Callable, List, Optional, Tuple
 
 import rosbag
 
-from .config import BAG_NODE_NAME, STOP_TIMEOUT_S, Settings
+from .config import BAG_NODE_NAME, CODE_REPOS, STOP_TIMEOUT_S, Settings
 from .logbridge import log
 from .naming import (run_dir, sanitise_suffix, stamp_extended, utc_now,
                      version_tag)
@@ -118,6 +118,14 @@ class BagRecorder:
         except (OSError, subprocess.SubprocessError) as exc:
             log.error('rosparam dump failed, no params.yaml for this run: %s', exc)
 
+        # Commit of each repo at record start. Written now, not at Stop, so a run without metadata.json still has it.
+        code_version = {name: git_state(repo, bag_dir, name) for name, repo in CODE_REPOS.items()}
+        try:
+            with open(os.path.join(bag_dir, 'code_version.json'), 'w') as fh:
+                json.dump(code_version, fh, indent=2)
+        except OSError as exc:
+            log.error('Could not write code_version.json: %s', exc)
+
         try:
             # setsid: rosbag record spawns children. We must signal the whole
             # process group, or SIGINT leaves a half-written .bag.active.
@@ -138,6 +146,7 @@ class BagRecorder:
             'model_hash': model_hash,
             'suffix': sanitise_suffix(suffix),
             'recorded_at': stamp_extended(when),
+            'code_version': code_version,
         }
 
         scope = ('all topics' if (cfg.record_all or not cfg.wanted_topics)
@@ -281,6 +290,38 @@ class BagRecorder:
             except Exception as exc:                           # noqa: BLE001
                 log.error('Could not read %s: %s', name, exc)
         return summary
+
+
+def git_state(repo: str, out_dir: str, name: str) -> dict:
+    """Commit and dirty flag of a repo. dirty = uncommitted changes, so the commit alone does not describe the code that ran.
+    When dirty, the uncommitted changes go to git_<name>.diff in out_dir, and untracked files (not in a git diff) are listed.
+    A failure is logged and returned as an 'error' entry, never raised."""
+    def git(*args):
+        return subprocess.run(['git', '-C', repo] + list(args), capture_output=True, text=True, timeout=10.0)
+
+    try:
+        head = git('rev-parse', 'HEAD')
+        if head.returncode != 0:
+            raise RuntimeError(head.stderr.strip())
+        status = git('status', '--porcelain').stdout
+        state = {'repo': repo, 'commit': head.stdout.strip(), 'dirty': bool(status.strip())}
+    except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+        log.error('No commit recorded for %s: %s', repo, exc)
+        return {'repo': repo, 'error': str(exc)}
+
+    if not state['dirty']:
+        return state
+
+    log.warning('%s has uncommitted changes - this run is marked dirty.', repo)
+    state['untracked'] = [line[3:] for line in status.splitlines() if line.startswith('??')]
+    diff_name = 'git_{}.diff'.format(name)
+    try:
+        with open(os.path.join(out_dir, diff_name), 'w') as fh:
+            fh.write(git('diff', 'HEAD').stdout)
+        state['diff_file'] = diff_name
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.error('Could not write %s: %s', diff_name, exc)
+    return state
 
 
 def free_space_gb(path: str) -> float:

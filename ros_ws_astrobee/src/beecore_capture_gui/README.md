@@ -103,10 +103,8 @@ same work four times over and let the cameras drift a frame apart from each
 other.
 
 Each camera carries its own offset, saved default, FOV, resolution and frame
-rate. Camera 1 keeps whatever the single-camera build had; cameras 2–4 start
-at that same offset — so all four are co-located until you move them apart —
-at 640×480/30 Hz rather than 1080p/60, because four 1080p sensors is a large
-step up in render load to take unasked. Raise them on the Camera tab if the
+rate. A fresh config starts all four the same: zero offset (co-located until
+you move them apart), 640×480 at 30 Hz. Raise them on the Camera tab if the
 machine copes.
 
 ### Why not the URDF
@@ -342,8 +340,17 @@ Start. A second Start within the same second is refused.
 ├── 20261118T164400Z_s000_u000_isam.bag
 ├── SUCCESS                       # or FAILURE
 ├── params.yaml                   # rosparam dump at record start
+├── code_version.json             # git commit + dirty flag per repo, at record start
 └── metadata.json                 # written once, at Stop
 ```
+
+`code_version.json` holds, for each repo in `CODE_REPOS` (`config.py`), the
+`commit` and `dirty` (true = uncommitted changes, so the commit does not fully
+describe the code that ran). When dirty, the changes are saved as
+`git_<name>.diff` in the run folder (`diff_file`), and files git does not track
+yet are listed under `untracked` (a diff cannot include them). A repo git cannot
+read gets an `error` entry instead. The same block is copied into
+`metadata.json` as `code_version`.
 
 `metadata.json` starts with the run identity:
 

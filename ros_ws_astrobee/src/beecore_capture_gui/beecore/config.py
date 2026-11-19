@@ -39,6 +39,9 @@ GUI_HOST = os.environ.get('BEECORE_GUI_HOST',
 
 DEFAULT_NS = 'honey'
 
+# Git repos whose commit is saved with each run (code_version.json). Key = name in the file.
+CODE_REPOS = {'astrobee_isd': '/src/astrobee-isd', 'astrobee': '/src/astrobee/src'}
+
 # --- capture outcome ---------------------------------------------------------
 
 OUTCOME_NA = 'N/A'
@@ -136,23 +139,17 @@ CAM_RESOLUTIONS = {
 }
 
 def default_camera(index: int) -> dict:
-    """A fresh camera entry.
-
-    Camera 1 keeps what the single-camera build used, so an existing setup
-    behaves exactly as before. Cameras 2-4 start at VGA/30 Hz rather than
-    1080p/60: four 1080p sensors at 60 Hz is a large step up in render load to
-    take without being asked. Raise them on the Camera tab if the machine
-    copes.
+    """A fresh camera entry. All four start the same: 640x480 at 30 Hz.
+    Raise them on the Camera tab if the machine copes.
     """
-    first = (index == 0)
     return {
         'label': 'Camera {}'.format(index + 1),
         'offset': dict(CAM_ZERO),
         'defaults': dict(CAM_ZERO),
         'fov_deg': 90.0,
-        'width': 1920 if first else 640,
-        'height': 1080 if first else 480,
-        'rate_hz': 60.0 if first else 30.0,
+        'width': 640,
+        'height': 480,
+        'rate_hz': 60.0,
     }
 
 
