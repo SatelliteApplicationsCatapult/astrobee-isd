@@ -46,7 +46,7 @@ robot_sim:
 #     Pose(position=Point(0.017, -0.051, -0.133),
 #           orientation=Quaternion(0.0, np.sqrt(2.0) / 2.0, 0.0, np.sqrt(2.0) / 2.0)))
 
-# Flight assist (inertial damping)
+# Flight assist (viscous damping)
 flight_assist:
-  lin_vel_decay_time: 1.0  # s
-  ang_vel_decay_time: 1.0  # s
+  lin_vel_decay_time: 3.0  # s
+  ang_vel_decay_time: 3.0  # s

@@ -503,7 +503,7 @@ class BeecoreController(object):
 
     def damping_wrench(self):
         """
-        Flight assist. Returns a body-frame wrench opposing the current
+        Flight assist (viscous damping). Returns a body-frame wrench opposing the current
         velocity, clamped per axis to match the joystick converter's limits.
 
         :return: damping wrench, force then torque
