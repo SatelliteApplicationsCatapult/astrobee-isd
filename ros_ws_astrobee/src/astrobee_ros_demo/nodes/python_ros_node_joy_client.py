@@ -50,6 +50,7 @@ class BeecoreController(object):
         self.max_torque = np.array(rospy.get_param("/wrench_command/max_torque", [0.06, 0.03, 0.03]))
         self.mass = rospy.get_param("/robot_sim/mass", 9.7756)
         self.inertia = np.array(rospy.get_param("/robot_sim/inertia", [0.1737, 0.1649, 0.1865]))
+        self.flight_assist_enabled = rospy.get_param("/flight_assist/enabled", True)
         self.lin_vel_decay_time = rospy.get_param("/flight_assist/lin_vel_decay_time", 1.0)
         self.ang_vel_decay_time = rospy.get_param("/flight_assist/ang_vel_decay_time", 1.0)
 
@@ -77,6 +78,9 @@ class BeecoreController(object):
         self.arm_goal = None       # Last arm goal sent
         # Body wrench
         self.joy_wrench = np.zeros((6, ))
+        # Wrench limits
+        self.wrench_limits = np.concatenate((self.max_force, self.max_torque))
+
 
         # Data timestamps and validity threshold
         self.ts_threshold = 1.0
@@ -503,8 +507,7 @@ class BeecoreController(object):
 
     def damping_wrench(self):
         """
-        Flight assist (viscous damping). Returns a body-frame wrench opposing the current
-        velocity, clamped per axis to match the joystick converter's limits.
+        Flight assist (viscous damping). Returns a body-frame wrench opposing the current velocity.
 
         :return: damping wrench, force then torque
         :rtype: numpy.ndarray, shape (6,)
@@ -516,8 +519,7 @@ class BeecoreController(object):
         force = self.world_to_body(-(self.mass / self.lin_vel_decay_time) * v_world)
         torque = - (self.inertia / self.ang_vel_decay_time) * w_body
 
-        return np.concatenate((np.clip(force, -self.max_force, self.max_force),
-                               np.clip(torque, -self.max_torque, self.max_torque)))
+        return np.concatenate((force, torque))
 
 
     def create_flight_mode_message(self):
@@ -591,11 +593,18 @@ class BeecoreController(object):
             # Ignore stale joy_wrench data (>1 sec) - Use a separate timing var in case joy_wrench_ts is empty
             if rospy.get_time() - self.last_wrench_ts > 1.0:
                 rospy.logwarn_throttle(1.0, "Stale joystick wrench data, ignoring.")
-                # Apply damping only
-                self.u_traj = self.damping_wrench()
+                stick = np.zeros((6, ))
             else:
-                # Apply joy_wrench and damping
-                self.u_traj = self.joy_wrench + self.damping_wrench()
+                stick = self.joy_wrench
+
+            # Flight assist
+            if self.flight_assist_enabled:
+                self.u_traj = stick + self.damping_wrench()
+            else:
+                self.u_traj = stick
+
+            # Final limit on the total command
+            self.u_traj = np.clip(self.u_traj, -self.wrench_limits, self.wrench_limits)
 
 
             #tout = rospy.get_time() - tin

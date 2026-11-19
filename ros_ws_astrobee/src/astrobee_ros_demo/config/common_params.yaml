@@ -48,5 +48,6 @@ robot_sim:
 
 # Flight assist (viscous damping)
 flight_assist:
+  enabled: true
   lin_vel_decay_time: 3.0  # s
   ang_vel_decay_time: 3.0  # s
