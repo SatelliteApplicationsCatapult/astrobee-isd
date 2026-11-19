@@ -14,7 +14,7 @@ rates:
 # Torques set to 1/10 of forces, as rough estimate noted also in paper
 wrench_command:
   max_force: [0.6, 0.3, 0.3]      # N
-  max_torque: [0.06, 0.03, 0.03]  # Nm
+  max_torque: [0.03, 0.03, 0.03]  # Nm
 
 # Values reported by Gazebo sim
 # gz model -m honey -i | grep -E "name:|mass:" | grep -B1 "mass:"
