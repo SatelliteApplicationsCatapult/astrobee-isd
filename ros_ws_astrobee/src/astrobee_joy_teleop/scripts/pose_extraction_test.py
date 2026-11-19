@@ -35,7 +35,7 @@ class PoseExtractor:
         self.box_min = rospy.get_param('~box_min', [-0.25, -0.25, 0.0])              # Box region limits [x_min, y_min, z_min]
         self.box_max = rospy.get_param('~box_max', [ 0.25,  0.25, 0.5])              # Box region limits [x_max, y_max, z_max]
         self.max_history_len = rospy.get_param('~max_history_len', 10)
-        self.playback_rate = rospy.get_param('~playback_rate', 2.0)
+        self.playback_rate = rospy.get_param('~playback_rate', 5.0)
         self.loop_playback = rospy.get_param('~loop_playback', True)
 
         # Ground truth midpoint: distance along the tool's own Z from its origin to the middle of its length [m].
@@ -113,6 +113,7 @@ class PoseExtractor:
         estimated_pose_msg = PoseStamped()
         estimated_twist_msg = TwistStamped()
 
+        pc_num = 0
 
         results_offset_y = 1.0
 
@@ -122,7 +123,6 @@ class PoseExtractor:
             for topic, msg, t in bag.read_messages(topics=["/gazebo/model_states", self.pointcloud_topic]):
                 if rospy.is_shutdown():
                     break
-
 
                 if topic == "/gazebo/model_states":
 
@@ -215,7 +215,11 @@ class PoseExtractor:
                     #trimmed_points = pu.trim_to_box(noisy_points, self.box_min, self.box_max)
                     filtered_points = pu.trim_to_box(noisy_points, self.box_min, self.box_max)
 
-                    print(len(filtered_points))
+                    num_filtered_points = len(filtered_points)
+                    rospy.loginfo("Pointcloud %d - Number of filtered points: %d", pc_num, num_filtered_points)
+                    if num_filtered_points <= 10:
+                        rospy.logwarn("Pointcloud %d - Length of filtered points list too small (%d), skipping frame", pc_num, num_filtered_points)
+                        continue
 
                     # Remove big outliers
                     # filtered_points = pu.remove_outliers(trimmed_points)
@@ -443,6 +447,9 @@ class PoseExtractor:
                     })
 
 
+                    pc_num = pc_num + 1
+
+
 
 
         finally:
@@ -574,27 +581,34 @@ class PoseExtractor:
 
     def estimate_twist(self):
         """
-        Least-squares slope over the history window, valid at the window's mid time (lag = half the window).
-        Angular velocity is d x d_dot: the component perpendicular to the axis only.
+        Running average of frame-to-frame velocities over the history window.
+        Linear: change in midpoint / dt.
+        Angular: rotation from one axis to the next / dt (perpendicular to the axis only; spin about it is not visible).
         """
-        t = np.array([h[0] for h in self.pose_history])
-        centres = np.array([h[1] for h in self.pose_history])
-        axes = np.array([h[2] for h in self.pose_history])
+        v_steps = []
+        w_steps = []
 
-        t = t - t.mean()
-        denom = np.sum(t * t)
-        if denom <= 0.0:
-            rospy.logwarn("Twist estimate skipped: all stamps in the window are identical")
+        for (t0, c0, d0), (t1, c1, d1) in zip(self.pose_history[:-1], self.pose_history[1:]):
+            dt = t1 - t0
+            if dt <= 0.0:
+                continue
+
+            v_steps.append((c1 - c0) / dt)
+
+            # Rotation taking d0 to d1: about d0 x d1, by the angle between them
+            cross = np.cross(d0, d1)
+            sin_a = np.linalg.norm(cross)
+            if sin_a < 1e-9:
+                w_steps.append(np.zeros(3))
+                continue
+            angle = np.arctan2(sin_a, np.dot(d0, d1))
+            w_steps.append(cross / sin_a * angle / dt)
+
+        if not v_steps:
+            rospy.logwarn("Twist estimate skipped: no valid time steps in the window")
             return np.zeros(3), np.zeros(3)
 
-        v = t @ (centres - centres.mean(axis=0)) / denom
-        axis_rate = t @ (axes - axes.mean(axis=0)) / denom
-
-        axis_mid = axes.mean(axis=0)
-        axis_mid = axis_mid / np.linalg.norm(axis_mid)
-        w = np.cross(axis_mid, axis_rate)
-
-        return v, w
+        return np.mean(v_steps, axis=0), np.mean(w_steps, axis=0)
 
 
 if __name__ == '__main__':

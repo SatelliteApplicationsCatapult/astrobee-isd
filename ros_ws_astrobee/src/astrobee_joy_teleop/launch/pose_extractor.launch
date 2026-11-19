@@ -7,7 +7,8 @@
     <arg name="tool_name" default="ratchet_wrench" />
     <arg name="robot_name" default="honey" />
     <arg name="pc_frame" default="honey/perch_cam" />
-    <arg name="pointcloud_topic" default="hw/depth_perch/points" />
+    <arg name="pointcloud_topic" default="/honey/hw/depth_perch/points" />
+    <arg name="playback_rate" default="5" />
 
     <group ns="/$(arg ns)">
         <node
@@ -22,6 +23,7 @@
             <param name="robot_name" value="$(arg robot_name)" />
             <param name="pc_frame" value="$(arg pc_frame)" />
             <param name="pointcloud_topic" value="$(arg pointcloud_topic)" />
+            <param name="playback_rate" value="$(arg playback_rate)" />
 
         </node>
     </group>
