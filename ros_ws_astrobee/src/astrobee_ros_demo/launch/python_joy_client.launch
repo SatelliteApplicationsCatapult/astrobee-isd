@@ -5,10 +5,10 @@
         <node pkg="astrobee_ros_demo" type="python_ros_node_joy_client.py" name="python_ros_node_joy_client" output="screen">
             <!-- Topics -->
             <!-- Select either the ground truth or localisation estimates for pose/twist -->
-            <remap from="~pose_topic" to="loc/truth/pose"/>
-            <remap from="~twist_topic" to="loc/truth/twist"/>
-            <!-- <remap from="~pose_topic" to="loc/pose"/> -->
-            <!-- <remap from="~twist_topic" to="loc/twist"/> -->
+            <!-- <remap from="~pose_topic" to="loc/truth/pose"/> -->
+            <!-- <remap from="~twist_topic" to="loc/truth/twist"/> -->
+            <remap from="~pose_topic" to="loc/pose"/>
+            <remap from="~twist_topic" to="loc/twist"/>
 
             <remap from="~control_topic" to="gnc/ctl/command"/>
             <remap from="~flight_mode" to="mob/flight_mode"/>
