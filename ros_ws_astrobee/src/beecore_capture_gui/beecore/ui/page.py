@@ -236,7 +236,7 @@ class _Session:
         if self.recorder.recording:
             elapsed = int(self.recorder.elapsed_s)
             self.rec_label.set_text('REC  {:03d}   {:02d}:{:02d}   {:.0f} MB'.format(
-                self.recorder.active_id or 0, elapsed // 60, elapsed % 60,
+                self.recorder.active_meta.get('uid') or 0, elapsed // 60, elapsed % 60,
                 self.recorder.bytes_on_disk() / 1e6))
             self.rec_label.classes(add='rec-live')
             self.rec_label.style('color: {}'.format(theme.RED))
